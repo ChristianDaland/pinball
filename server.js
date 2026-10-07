@@ -15,28 +15,26 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Toppbue / kurv som leder ballen ut fra høyre kanal og inn på spillefeltet
-        { x1: 720, y1: 140, x2: 720, y2: 60 },
+        // Toppbue / kurv (fra høyre kanal over til venstre side)
+        { x1: 720, y1: 200, x2: 720, y2: 60 },
         { x1: 720, y1: 60,  x2: 600, y2: 25 },
         { x1: 600, y1: 25,  x2: 400, y2: 20 },
         { x1: 400, y1: 20,  x2: 200, y2: 25 },
         { x1: 200, y1: 25,  x2: 100, y2: 60 },
-        { x1: 100, y1: 60,  x2: 80,  y2: 140 },
+        { x1: 100, y1: 60,  x2: 80,  y2: 200 },
         
-        // Venstre yttervegg (slik at ballen ikke faller ut til venstre)
-        { x1: 80,  y1: 140, x2: 20,  y2: 400 },
-        { x1: 20,  y1: 400, x2: 80,  y2: 980 },
+        // Venstre yttervegg (glatt og jevn bue)
+        { x1: 80,  y1: 200, x2: 80,  y2: 980 },
         
-        // Høyre yttervegg
-        { x1: 720, y1: 140, x2: 780, y2: 400 },
-        { x1: 780, y1: 400, x2: 720, y2: 980 },
+        // Høyre yttervegg (for selve kabinettet/bordet)
+        { x1: 720, y1: 200, x2: 720, y2: 980 },
         
-        // Skillevegg for høyre kanal (stoppes ved y: 140 slik at det er en åpen bue i toppen)
-        { x1: 720, y1: 140, x2: 720, y2: 1150 },
+        // Skillevegg for høyre kanal (stopper ved y: 200 slik at det er åpent i toppen for ballen)
+        { x1: 640, y1: 200, x2: 640, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
-        { x1: 720, y1: 980, x2: 570, y2: 1100 },
+        { x1: 640, y1: 980, x2: 570, y2: 1100 },
     ];
 }
 
@@ -48,7 +46,7 @@ const bumpers = [
 
 let players = {};
 let scores = {};
-let ball = { x: 760, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
+let ball = { x: 680, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
 let highScores = [];
@@ -88,9 +86,9 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
-    // Skyter ballen oppover i høyre kanal
+    // Skyter ballen oppover i høyre kanal (mellom x: 640 og x: 720)
     socket.on('ball-launch', () => {
-        ball.x = 760;
+        ball.x = 680;
         ball.y = 1150;
         ball.vx = 0;
         ball.vy = -26; 
@@ -112,7 +110,7 @@ io.on('connection', (socket) => {
 });
 
 function resetBall() {
-    ball.x = 760;
+    ball.x = 680;
     ball.y = 1150;
     ball.vx = 0;
     ball.vy = 0;
@@ -136,14 +134,14 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // Fysisk håndtering for oppskyting i høyre kanal og overgang i toppen
-    if (ball.x > 720 && ball.y > 140 && ball.vy < 0) {
+    // Fysisk håndtering for oppskyting i høyre kanal (x mellom 640 og 720)
+    if (ball.x > 640 && ball.x < 720 && ball.y > 200 && ball.vy < 0) {
         ball.y += ball.vy;
-        if (ball.y <= 140) {
+        if (ball.y <= 200) {
             ball.vx = -8;
             ball.vy = -4;
         }
-    } else if (ball.x > 400 && ball.y <= 140 && ball.vy < 0) {
+    } else if (ball.x > 400 && ball.y <= 200 && ball.vy < 0) {
         ball.x += ball.vx;
         ball.y += ball.vy;
         ball.vx -= 0.2;
@@ -243,7 +241,7 @@ function buildGameState() {
         ball: { ...ball },
         flippers: { ...flipStates },
         gameStarted,
-        bumpers: bumpers.app ? bumpers : bumpers.map(b => ({ ...b })),
+        bumpers: bumpers.map(b => ({ ...b })),
         highScores,
     };
 }

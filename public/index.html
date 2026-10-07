@@ -50,7 +50,7 @@ window.addEventListener('resize', resize);
 
 const socket = io();
 
-// --- Lyd / Audio Engine (Pling og plong) ---
+// Lyd-engine (pling og plong)
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) {
@@ -88,7 +88,7 @@ socket.on('state', (data) => {
   if (data.scores) {
     let totalScore = Object.values(data.scores).reduce((a, b) => a + b, 0);
     if (totalScore > lastScore) {
-      playTone(587.33, 0.15, 'triangle'); // Pling ved poeng!
+      playTone(587.33, 0.15, 'triangle'); // Pling
       setTimeout(() => playTone(880, 0.2, 'sine'), 80);
       lastScore = totalScore;
     }
@@ -96,7 +96,6 @@ socket.on('state', (data) => {
   }
   if (data.ball) ball = data.ball;
   
-  // Sjekk treff på bumpers for lyseffekter/lyd
   if (data.bumpers) {
     data.bumpers.forEach((b, i) => {
       if (bumpers[i] && b.hitFlash > bumpers[i].hitFlash) {
@@ -134,7 +133,7 @@ function drawGame() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Tegn røde vegger og baner
+  // Tegn vegger og baner nøyaktig i henhold til fysikken
   ctx.save();
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 4;
@@ -143,30 +142,35 @@ function drawGame() {
   
   // Venstre yttervegg
   ctx.beginPath();
-  ctx.moveTo(W * 0.1, H * 0.107);
-  ctx.lineTo(W * 0.025, H * 0.307);
+  ctx.moveTo(W * 0.1, H * 0.153);
   ctx.lineTo(W * 0.1, H * 0.753);
   ctx.stroke();
 
-  // Toppkurv / bue med åpning inn til kanalen
+  // Høyre yttervegg
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.107);
-  ctx.lineTo(W * 0.9, H * 0.046);
-  ctx.quadraticCurveTo(W * 0.5, H * 0.015, W * 0.1, H * 0.046);
-  ctx.lineTo(W * 0.1, H * 0.107);
+  ctx.moveTo(W * 0.9, H * 0.153);
+  ctx.lineTo(W * 0.9, H * 0.753);
   ctx.stroke();
 
-  // Skillevegg for høyre kanal (Plunger lane) som stopper i toppen ved åpningen
+  // Toppkurv / bue
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.107);
-  ctx.lineTo(W * 0.9, H * 0.88);
+  ctx.moveTo(W * 0.9, H * 0.153);
+  ctx.lineTo(W * 0.9, H * 0.046);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.015, W * 0.1, H * 0.046);
+  ctx.lineTo(W * 0.1, H * 0.153);
+  ctx.stroke();
+
+  // Skillevegg for høyre kanal (stoppes ved y: 200 / H * 0.153 slik at toppen er åpen)
+  ctx.beginPath();
+  ctx.moveTo(W * 0.8, H * 0.153);
+  ctx.lineTo(W * 0.8, H * 0.88);
   ctx.stroke();
 
   // Fjær i bunnen av høyre kanal
   ctx.strokeStyle = '#f59e0b';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  let springX = W * 0.95;
+  let springX = W * 0.85;
   let springTop = H * 0.85;
   let springBottom = H * 0.92;
   ctx.moveTo(springX, springBottom);
@@ -262,7 +266,6 @@ document.getElementById('launch-btn').addEventListener('click', () => {
   socket.emit('ball-launch');
 });
 
-// Sørg for at lydkontekst starter ved første interaksjon på skjermen
 window.addEventListener('click', () => { initAudio(); }, { once: true });
 
 drawGame();
