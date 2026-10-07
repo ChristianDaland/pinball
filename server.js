@@ -57,7 +57,7 @@ const FLIPPER_LEN = 110;
 
 function getFlipLeftEnd() {
     const px = 230, py = 1100;
-    const angle = flipStates.left ? -0.5 : 0.35;
+    const angle = flipStates.left ? -0.55 : 0.35;
     return {
         x1: px, y1: py,
         x2: px + Math.cos(angle) * FLIPPER_LEN,
@@ -67,7 +67,7 @@ function getFlipLeftEnd() {
 
 function getFlipRightEnd() {
     const px = 470, py = 1100;
-    const angle = flipStates.right ? (Math.PI + 0.5) : (Math.PI - 0.35);
+    const angle = flipStates.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
     return {
         x1: px, y1: py,
         x2: px + Math.cos(angle) * FLIPPER_LEN,
@@ -92,7 +92,7 @@ io.on('connection', (socket) => {
         ball.x = 660;
         ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -27; 
+        ball.vy = -28; 
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -135,6 +135,7 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
+    // Håndtering av oppskyting i høyre kanal
     if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
         if (ball.y <= 150) {
@@ -151,10 +152,32 @@ setInterval(() => {
         ball.y += ball.vy;
     }
 
-    // Sikring for venstrevegg
+    // --- UTVIKLET SIKKERHETSREGLER FOR VÆGGINGER (Hindre lekkasje) ---
+    // 1. Venstre vegg
     if (ball.x - ball.r < 80) {
         ball.x = 80 + ball.r;
-        ball.vx = Math.abs(ball.vx) * 0.8;
+        ball.vx = Math.abs(ball.vx) * 0.75;
+    }
+    // 2. Høyre yttervegg
+    if (ball.x + ball.r > 720 && ball.y > 150) {
+        ball.x = 720 - ball.r;
+        ball.vx = -Math.abs(ball.vx) * 0.75;
+    }
+    // 3. Skillevegg for høyre kanal (hindrer at ballen slår seg gjennom høyreveggen fra spillfeltet og inn i kanalen igjen)
+    if (ball.y > 150 && ball.y < 980) {
+        if (ball.x > 610 && ball.x < 630) {
+            if (ball.vx < 0) { // Kommer fra kanalen og vil inn på banen (tillat)
+                // OK
+            } else { // Kommer fra banen og prøver å gå gjennom høyrekanalsveggen
+                ball.x = 620 - ball.r;
+                ball.vx = -Math.abs(ball.vx) * 0.75;
+            }
+        }
+    }
+    // 4. Toppvegg / tak
+    if (ball.y - ball.r < 20) {
+        ball.y = 20 + ball.r;
+        ball.vy = Math.abs(ball.vy) * 0.75;
     }
 
     const walls = makeWalls();
@@ -216,12 +239,15 @@ function collideBallSegment(w) {
     const distY = ball.y - closestY;
     const dist = Math.sqrt(distX * distX + distY * distY);
 
-    if (dist < ball.r && dist > 0) {
+    // Utvidet kollisjonsradius for flippere slik at de aldri glipper
+    const hitRadius = w.isFlipper ? ball.r + 4 : ball.r;
+
+    if (dist < hitRadius && dist > 0) {
         const nx = distX / dist;
         const ny = distY / dist;
 
-        ball.x = closestX + nx * (ball.r + 2);
-        ball.y = closestY + ny * (ball.r + 2);
+        ball.x = closestX + nx * (hitRadius + 1);
+        ball.y = closestY + ny * (hitRadius + 1);
 
         const dot = ball.vx * nx + ball.vy * ny;
         ball.vx -= 2 * dot * nx;
@@ -230,13 +256,12 @@ function collideBallSegment(w) {
         ball.vx *= 0.85;
         ball.vy *= 0.85;
 
-        // Spesifikk sjekk for flipperne
         if (w.isFlipper) {
             const flippingUp = (w.isLeft && flipStates.left) || (!w.isLeft && flipStates.right);
             if (flippingUp) {
-                // Ekstra kraftig dult oppover og innover når man aktivt slår med spaken
-                ball.vy = -18;
-                ball.vx += (w.isLeft ? 8 : -8);
+                // Sikker og kraftig respons som slår ballen oppover
+                ball.vy = -19;
+                ball.vx += (w.isLeft ? 9 : -9);
             }
         }
     }
