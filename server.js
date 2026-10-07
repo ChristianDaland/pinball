@@ -15,16 +15,22 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Topp-bue som leder ballen fra høyre kanal over til venstre side av spillfeltet
-        { x1: 720, y1: 120, x2: 600, y2: 40 },
-        { x1: 600, y1: 40,  x2: 400, y2: 25 },
-        { x1: 400, y1: 25,  x2: 200, y2: 40 },
-        { x1: 200, y1: 40,  x2: 80,  y2: 120 },
+        // Lukket topp-bue som tvinger ballen fra høyre kanal over til venstre side av bordet
+        { x1: 720, y1: 150, x2: 720, y2: 80 },
+        { x1: 720, y1: 80,  x2: 650, y2: 30 },
+        { x1: 650, y1: 30,  x2: 400, y2: 20 },
+        { x1: 400, y1: 20,  x2: 150, y2: 30 },
+        { x1: 150, y1: 30,  x2: 80,  y2: 80 },
+        { x1: 80,  y1: 80,  x2: 80,  y2: 150 },
         
         // Yttervegger på spillfeltet
-        { x1: 80,  y1: 120, x2: 20,  y2: 400 },
+        { x1: 80,  y1: 150, x2: 20,  y2: 400 },
         { x1: 20,  y1: 400, x2: 80,  y2: 980 },
-        { x1: 720, y1: 120, x2: 720, y2: 980 }, // Skillevegg for høyre kanal (Plunger lane)
+        { x1: 720, y1: 150, x2: 790, y2: 400 },
+        { x1: 790, y1: 400, x2: 720, y2: 980 },
+        
+        // Skillevegg for høyre kanal (Plunger lane) som stopper ved toppen der buen starter
+        { x1: 720, y1: 150, x2: 720, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
@@ -45,7 +51,6 @@ const slingshots = [
 
 let players = {};
 let scores = {};
-// Starter i bunnen av høyre kanal (fjæra)
 let ball = { x: 760, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
@@ -86,12 +91,11 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
-    // Plunger / Fjærskyting: Skyter ballen oppover i høyre kanal
     socket.on('ball-launch', () => {
         ball.x = 760;
         ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -26; // Kraftig fjær-skyv oppover i kanalen
+        ball.vy = -25; // Skyter ballen oppover i kanalen
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -143,7 +147,7 @@ setInterval(() => {
         { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2 }
     ];
 
-    // Ikke påvirk av tyngdekraften når ballen skytes oppover i høyre kanal (x > 720)
+    // Ingen tyngdekraft mens ballen stiger opp i høyre kanal
     if (!(ball.x > 720 && ball.vy < 0)) {
         ball.vy += GRAVITY;
     }
@@ -178,7 +182,6 @@ setInterval(() => {
         }
     }
 
-    // Om ballen faller i bunn (under flipperne)
     if (ball.y > H + 50) {
         resetBall();
     }
