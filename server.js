@@ -15,22 +15,22 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Lukket topp-bue som tvinger ballen fra høyre kanal over til venstre side av bordet
-        { x1: 720, y1: 150, x2: 720, y2: 80 },
-        { x1: 720, y1: 80,  x2: 650, y2: 30 },
-        { x1: 650, y1: 30,  x2: 400, y2: 20 },
-        { x1: 400, y1: 20,  x2: 150, y2: 30 },
-        { x1: 150, y1: 30,  x2: 80,  y2: 80 },
-        { x1: 80,  y1: 80,  x2: 80,  y2: 150 },
+        // Toppkurv / bue som leder ballen fra høyre kanal inn på spillefeltet
+        { x1: 720, y1: 140, x2: 720, y2: 60 },
+        { x1: 720, y1: 60,  x2: 600, y2: 25 },
+        { x1: 600, y1: 25,  x2: 400, y2: 20 },
+        { x1: 400, y1: 20,  x2: 200, y2: 25 },
+        { x1: 200, y1: 25,  x2: 100, y2: 60 },
+        { x1: 100, y1: 60,  x2: 80,  y2: 140 },
         
         // Yttervegger på spillfeltet
-        { x1: 80,  y1: 150, x2: 20,  y2: 400 },
+        { x1: 80,  y1: 140, x2: 20,  y2: 400 },
         { x1: 20,  y1: 400, x2: 80,  y2: 980 },
-        { x1: 720, y1: 150, x2: 790, y2: 400 },
-        { x1: 790, y1: 400, x2: 720, y2: 980 },
+        { x1: 720, y1: 140, x2: 780, y2: 400 },
+        { x1: 780, y1: 400, x2: 720, y2: 980 },
         
-        // Skillevegg for høyre kanal (Plunger lane) som stopper ved toppen der buen starter
-        { x1: 720, y1: 150, x2: 720, y2: 1150 },
+        // Skillevegg for høyre kanal (Plunger lane) - slutter ved y: 140 der buen starter
+        { x1: 720, y1: 140, x2: 720, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
@@ -91,11 +91,12 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
+    // Skyter ballen oppover i høyre kanal
     socket.on('ball-launch', () => {
         ball.x = 760;
         ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -25; // Skyter ballen oppover i kanalen
+        ball.vy = -24; 
         ball.active = true;
         io.emit('state', buildGameState());
     });
