@@ -23,7 +23,7 @@ function makeWalls() {
         { x1: 200, y1: 25,  x2: 100, y2: 60 },
         { x1: 100, y1: 60,  x2: 80,  y2: 150 },
         
-        // Venstre yttervegg (plassert på x = 80)
+        // Venstre yttervegg
         { x1: 80,  y1: 150, x2: 80,  y2: 980 },
         
         // Høyre yttervegg
@@ -151,10 +151,10 @@ setInterval(() => {
         ball.y += ball.vy;
     }
 
-    // Ekstra sikkerhetssjekk: Hardt grensesnitt for venstreveggen (slik at den aldri kan gå gjennom x < 87)
+    // Sikring for venstrevegg
     if (ball.x - ball.r < 80) {
         ball.x = 80 + ball.r;
-        ball.vx = Math.abs(ball.vx) * 0.8; // Spretter tilbake inn på banen
+        ball.vx = Math.abs(ball.vx) * 0.8;
     }
 
     const walls = makeWalls();
@@ -162,12 +162,12 @@ setInterval(() => {
     const fR = getFlipRightEnd();
 
     const allSegments = [...walls,
-        { x1: fL.x1, y1: fL.y1, x2: fL.x2, y2: fL.y2 },
-        { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2 }
+        { x1: fL.x1, y1: fL.y1, x2: fL.x2, y2: fL.y2, isFlipper: true, isLeft: true },
+        { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2, isFlipper: true, isLeft: false }
     ];
 
     for (const w of allSegments) {
-        collideBallSegment(w, (w === fL || w === fR));
+        collideBallSegment(w);
     }
 
     for (const b of bumpers) {
@@ -181,7 +181,6 @@ setInterval(() => {
             ball.x = b.x + nx * (b.r + ball.r + 2);
             ball.y = b.y + ny * (b.r + ball.r + 2);
             const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            // Demper energien litt slik at den ikke skyter ut med ekstrem fart
             ball.vx = nx * speed * 0.7 + nx * 4;
             ball.vy = ny * speed * 0.7 + ny * 4;
             b.hitFlash = 10;
@@ -201,7 +200,7 @@ setInterval(() => {
     io.emit('state', buildGameState());
 }, 1000 / 60);
 
-function collideBallSegment(w, isFlipper) {
+function collideBallSegment(w) {
     const dx = w.x2 - w.x1;
     const dy = w.y2 - w.y1;
     const lenSq = dx * dx + dy * dy;
@@ -221,21 +220,23 @@ function collideBallSegment(w, isFlipper) {
         const nx = distX / dist;
         const ny = distY / dist;
 
-        ball.x = closestX + nx * (ball.r + 1);
-        ball.y = closestY + ny * (ball.r + 1);
+        ball.x = closestX + nx * (ball.r + 2);
+        ball.y = closestY + ny * (ball.r + 2);
 
         const dot = ball.vx * nx + ball.vy * ny;
         ball.vx -= 2 * dot * nx;
         ball.vy -= 2 * dot * ny;
 
-        ball.vx *= 0.8;
-        ball.vy *= 0.8;
+        ball.vx *= 0.85;
+        ball.vy *= 0.85;
 
-        if (isFlipper) {
-            const flippingUp = (w.x1 < 400 && flipStates.left) || (w.x1 > 400 && flipStates.right);
+        // Spesifikk sjekk for flipperne
+        if (w.isFlipper) {
+            const flippingUp = (w.isLeft && flipStates.left) || (!w.isLeft && flipStates.right);
             if (flippingUp) {
-                ball.vy = -16;
-                ball.vx += (w.x1 < 400 ? 5 : -5);
+                // Ekstra kraftig dult oppover og innover når man aktivt slår med spaken
+                ball.vy = -18;
+                ball.vx += (w.isLeft ? 8 : -8);
             }
         }
     }
