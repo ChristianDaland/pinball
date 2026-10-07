@@ -92,6 +92,18 @@ function drawGame() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
+  // Tegn vegger / topp-bue
+  ctx.save();
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 4;
+  ctx.shadowColor = '#e94560';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.925, H * 0.06);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.01, W * 0.075, H * 0.06);
+  ctx.stroke();
+  ctx.restore();
+
   // Tegn bumpers
   bumpers.forEach(b => {
     const bx = b.x / 800 * W;

@@ -15,40 +15,44 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        { x1: 60, y1: 0,   x2: 740, y2: 0 },
-        { x1: 10, y1: 30,   x2: 40, y2: 200 },
-        { x1: 40, y1: 200,  x2: 55, y2: 280 },
-        { x1: 55, y1: 350,  x2: 100, y2: 430 },
-        { x1: 120, y1: 980, x2: 230, y2: 1100 },
-        { x1: 680, y1: 980, x2: 570, y2: 1100 },
-        { x1: 745, y1: 350, x2: 700, y2: 430 },
-        { x1: 760, y1: 280, x2: 760, y2: 200 },
-        { x1: 760, y1: 200,  x2: 790, y2: 30 },
-        { x1: 740, y1: 50,   x2: 740, y2: 1250 },
+        // Topp-bue som tvinger ballen rundt fra høyre til venstre
+        { x1: 740, y1: 80,  x2: 600, y2: 30 },
+        { x1: 600, y1: 30,  x2: 400, y2: 20 },
+        { x1: 400, y1: 20,  x2: 200, y2: 30 },
+        { x1: 200, y1: 30,  x2: 60,  y2: 80 },
+        // Yttervegger
+        { x1: 60,  y1: 80,  x2: 10,  y2: 300 },
+        { x1: 10,  y1: 300, x2: 60,  y2: 980 },
+        { x1: 740, y1: 80,  x2: 790, y2: 300 },
+        { x1: 790, y1: 300, x2: 740, y2: 980 },
+        // Plunger-lane skillevegg til høyre
+        { x1: 740, y1: 80,  x2: 740, y2: 1150 },
+        // Flipper guider i bunn
+        { x1: 60,  y1: 980, x2: 230, y2: 1100 },
+        { x1: 740, y1: 980, x2: 570, y2: 1100 },
     ];
 }
 
 const bumpers = [
-    { x: 300, y: 300, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
-    { x: 500, y: 300, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
-    { x: 400, y: 450, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
+    { x: 300, y: 350, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
+    { x: 500, y: 350, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
+    { x: 400, y: 500, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
 ];
 
 const slingshots = [
-    { x1: 140, y1: 700, x2: 90, y2: 800, x3: 140, y3: 880, score: 50 },
-    { x1: 660, y1: 700, x2: 710, y2: 800, x3: 660, y3: 880, score: 50 },
+    { x1: 140, y1: 750, x2: 90, y2: 850, x3: 140, y3: 930, score: 50 },
+    { x1: 660, y1: 750, x2: 710, y2: 850, x3: 660, y3: 930, score: 50 },
 ];
 
 let players = {};
 let scores = {};
-let ball = { x: 760, y: 100, vx: 0, vy: 0, r: BALL_R, active: true };
+// Starter ballen i plunger-lanen nede til høyre
+let ball = { x: 770, y: 1100, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
 let highScores = [];
 
 const FLIPPER_LEN = 110;
-let flipLeftAngle = 0.35;
-let flipRightAngle = Math.PI - 0.35;
 
 function getFlipLeftEnd() {
     const px = 230, py = 1100;
@@ -66,15 +70,13 @@ function getFlipRightEnd() {
     return {
         x1: px, y1: py,
         x2: px + Math.cos(angle) * FLIPPER_LEN,
-        y2: px + Math.sin(angle) * FLIPPER_LEN
+        y2: py + Math.sin(angle) * FLIPPER_LEN
     };
 }
 
 let particles = [];
 
 io.on('connection', (socket) => {
-    console.log(`Klient koblet til: ${socket.id}`);
-    
     socket.on('set-name', (name) => {
         if (!name) return;
         players[socket.id] = { name, joinedAt: Date.now() };
@@ -85,8 +87,13 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
+    // Skyter ballen oppover langs høyre side (plunger lane)
     socket.on('ball-launch', () => {
-        resetBall();
+        ball.x = 770;
+        ball.y = 1100;
+        ball.vx = 0;
+        ball.vy = -22; // Kraftig skyv oppover
+        ball.active = true;
         io.emit('state', buildGameState());
     });
 
@@ -104,10 +111,10 @@ io.on('connection', (socket) => {
 });
 
 function resetBall() {
-    ball.x = 760 + Math.random() * 20;
-    ball.y = 100;
-    ball.vx = -2 - Math.random() * 2;
-    ball.vy = 2;
+    ball.x = 770;
+    ball.y = 1100;
+    ball.vx = 0;
+    ball.vy = 0;
     ball.active = true;
 }
 
@@ -137,7 +144,11 @@ setInterval(() => {
         { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2 }
     ];
 
-    ball.vy += GRAVITY;
+    // Ikke bruk tyngdekraft hvis ballen skytes oppover i plunger-lanen (høyre kanal x > 740)
+    if (!(ball.x > 740 && ball.vy < 0)) {
+        ball.vy += GRAVITY;
+    }
+
     ball.x += ball.vx;
     ball.y += ball.vy;
 
@@ -208,7 +219,7 @@ function collideBallSegment(w, isFlipper) {
         if (isFlipper) {
             const flippingUp = (w.x1 < 400 && flipStates.left) || (w.x1 > 400 && flipStates.right);
             if (flippingUp) {
-                ball.vy -= 12; // Gir kraft oppover når flipperen slår opp!
+                ball.vy -= 12;
                 ball.vx += (Math.random() - 0.5) * 6;
             }
         }
