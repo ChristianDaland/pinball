@@ -15,21 +15,13 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Toppkurv / bue som leder ballen fra høyre kanal inn på spillefeltet
-        { x1: 720, y1: 140, x2: 720, y2: 60 },
-        { x1: 720, y1: 60,  x2: 600, y2: 25 },
-        { x1: 600, y1: 25,  x2: 400, y2: 20 },
-        { x1: 400, y1: 20,  x2: 200, y2: 25 },
-        { x1: 200, y1: 25,  x2: 100, y2: 60 },
-        { x1: 100, y1: 60,  x2: 80,  y2: 140 },
-        
         // Yttervegger på spillfeltet
         { x1: 80,  y1: 140, x2: 20,  y2: 400 },
         { x1: 20,  y1: 400, x2: 80,  y2: 980 },
         { x1: 720, y1: 140, x2: 780, y2: 400 },
         { x1: 780, y1: 400, x2: 720, y2: 980 },
         
-        // Skillevegg for høyre kanal (Plunger lane) - slutter ved y: 140 der buen starter
+        // Skillevegg for høyre kanal (Plunger lane)
         { x1: 720, y1: 140, x2: 720, y2: 1150 },
         
         // Flipper-guider i bunn
@@ -42,11 +34,6 @@ const bumpers = [
     { x: 300, y: 380, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
     { x: 500, y: 380, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
     { x: 400, y: 520, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
-];
-
-const slingshots = [
-    { x1: 140, y1: 750, x2: 90, y2: 850, x3: 140, y3: 930, score: 50 },
-    { x1: 640, y1: 750, x2: 690, y2: 850, x3: 640, y3: 930, score: 50 },
 ];
 
 let players = {};
@@ -96,7 +83,7 @@ io.on('connection', (socket) => {
         ball.x = 760;
         ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -24; 
+        ball.vy = -26; 
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -139,6 +126,28 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
+    // SPESIELL SJEKK FOR HØYRE KANAL OG TOPPBUA:
+    // Hvis ballen er i høyre kanal og på vei oppover:
+    if (ball.x > 720 && ball.y > 100 && ball.vy < 0) {
+        ball.y += ball.vy;
+        // Sjekk om den når toppen av kanalen (f.eks. y < 100)
+        if (ball.y <= 100) {
+            // Tving den til å svinge over til venstre ut på bordet!
+            ball.vx = -8; 
+            ball.vy = -4;
+        }
+    } else if (ball.x > 500 && ball.y <= 100 && ball.vy < 0) {
+        // Hjelp den over buen i en myk bue
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+        ball.vx -= 0.2;
+    } else {
+        // Standard fysikk med tyngdekraft når den er ute på brettet
+        ball.vy += GRAVITY;
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+    }
+
     const walls = makeWalls();
     const fL = getFlipLeftEnd();
     const fR = getFlipRightEnd();
@@ -147,14 +156,6 @@ setInterval(() => {
         { x1: fL.x1, y1: fL.y1, x2: fL.x2, y2: fL.y2 },
         { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2 }
     ];
-
-    // Ingen tyngdekraft mens ballen stiger opp i høyre kanal
-    if (!(ball.x > 720 && ball.vy < 0)) {
-        ball.vy += GRAVITY;
-    }
-
-    ball.x += ball.vx;
-    ball.y += ball.vy;
 
     for (const w of allSegments) {
         collideBallSegment(w, (w === fL || w === fR));
@@ -238,7 +239,6 @@ function buildGameState() {
         flippers: { ...flipStates },
         gameStarted,
         bumpers: bumpers.map(b => ({ ...b })),
-        slingshots: slingshots.map(s => ({ ...s })),
         highScores,
     };
 }
