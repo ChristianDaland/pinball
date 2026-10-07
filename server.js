@@ -15,14 +15,22 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
+        // Toppkurv / bue som leder ballen fra høyre kanal inn på spillefeltet
+        { x1: 720, y1: 250, x2: 720, y2: 60 },
+        { x1: 720, y1: 60,  x2: 600, y2: 25 },
+        { x1: 600, y1: 25,  x2: 400, y2: 20 },
+        { x1: 400, y1: 20,  x2: 200, y2: 25 },
+        { x1: 200, y1: 25,  x2: 100, y2: 60 },
+        { x1: 100, y1: 60,  x2: 80,  y2: 140 },
+        
         // Yttervegger på spillfeltet
         { x1: 80,  y1: 140, x2: 20,  y2: 400 },
         { x1: 20,  y1: 400, x2: 80,  y2: 980 },
-        { x1: 720, y1: 140, x2: 780, y2: 400 },
+        { x1: 720, y1: 250, x2: 780, y2: 400 },
         { x1: 780, y1: 400, x2: 720, y2: 980 },
         
-        // Skillevegg for høyre kanal (Plunger lane)
-        { x1: 720, y1: 140, x2: 720, y2: 1150 },
+        // SKILLEVEGG FOR HØYRE KANAL: Stopper ved y: 250 slik at toppen er helt åpen inn til banen!
+        { x1: 720, y1: 250, x2: 720, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
@@ -126,23 +134,19 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // SPESIELL SJEKK FOR HØYRE KANAL OG TOPPBUA:
-    // Hvis ballen er i høyre kanal og på vei oppover:
-    if (ball.x > 720 && ball.y > 100 && ball.vy < 0) {
+    // Sjekk for høyre kanal og overgang til toppen
+    if (ball.x > 720 && ball.y > 200 && ball.vy < 0) {
         ball.y += ball.vy;
-        // Sjekk om den når toppen av kanalen (f.eks. y < 100)
-        if (ball.y <= 100) {
-            // Tving den til å svinge over til venstre ut på bordet!
-            ball.vx = -8; 
-            ball.vy = -4;
+        if (ball.y <= 250) {
+            // Svinger mot venstre når den treffer toppen av åpningen
+            ball.vx = -7;
+            ball.vy = -5;
         }
-    } else if (ball.x > 500 && ball.y <= 100 && ball.vy < 0) {
-        // Hjelp den over buen i en myk bue
+    } else if (ball.x > 500 && ball.y <= 250 && ball.vy < 0) {
         ball.x += ball.vx;
         ball.y += ball.vy;
-        ball.vx -= 0.2;
+        ball.vx -= 0.15;
     } else {
-        // Standard fysikk med tyngdekraft når den er ute på brettet
         ball.vy += GRAVITY;
         ball.x += ball.vx;
         ball.y += ball.vy;
