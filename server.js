@@ -11,32 +11,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const W = 800, H = 1300;
 const GRAVITY = 0.11;
-const BALL_R = 7;
-
-function makeWalls() {
-    return [
-        // Toppkurv / bue fra høyre kanal over til venstre side
-        { x1: 720, y1: 150, x2: 720, y2: 60 },
-        { x1: 720, y1: 60,  x2: 600, y2: 25 },
-        { x1: 600, y1: 25,  x2: 400, y2: 20 },
-        { x1: 400, y1: 20,  x2: 200, y2: 25 },
-        { x1: 200, y1: 25,  x2: 100, y2: 60 },
-        { x1: 100, y1: 60,  x2: 80,  y2: 150 },
-        
-        // Venstre yttervegg
-        { x1: 80,  y1: 150, x2: 80,  y2: 980 },
-        
-        // Høyre yttervegg
-        { x1: 720, y1: 150, x2: 720, y2: 980 },
-        
-        // Skillevegg for høyre kanal
-        { x1: 620, y1: 150, x2: 620, y2: 1150 },
-        
-        // Flipper-guider i bunn
-        { x1: 80,  y1: 980, x2: 230, y2: 1100 },
-        { x1: 620, y1: 980, x2: 470, y2: 1100 },
-    ];
-}
+const BALL_R = 9; // Litt større ball for mer stabil kollisjon
 
 const bumpers = [
     { x: 260, y: 300, r: 30, score: 50, color: '#ff6b6b', hitFlash: 0 },
@@ -55,27 +30,9 @@ let highScores = [];
 
 const FLIPPER_LEN = 110;
 
-function getFlipLeftEnd() {
-    const px = 230, py = 1100;
-    const angle = flipStates.left ? -0.55 : 0.35;
-    return {
-        x1: px, y1: py,
-        x2: px + Math.cos(angle) * FLIPPER_LEN,
-        y2: py + Math.sin(angle) * FLIPPER_LEN
-    };
-}
-
-function getFlipRightEnd() {
-    const px = 470, py = 1100;
-    const angle = flipStates.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
-    return {
-        x1: px, y1: py,
-        x2: px + Math.cos(angle) * FLIPPER_LEN,
-        y2: py + Math.sin(angle) * FLIPPER_LEN
-    };
-}
-
-let particles = [];
+// Flipper definisjoner (pivot-punkter)
+const leftFlipperPivot = { x: 230, y: 1100 };
+const rightFlipperPivot = { x: 470, y: 1100 };
 
 io.on('connection', (socket) => {
     socket.on('set-name', (name) => {
@@ -118,14 +75,14 @@ function resetBall() {
     ball.active = true;
 }
 
+let particles = [];
 function addParticles(x, y, color, count) {
     for (let i = 0; i < count; i++) {
         particles.push({
             x, y,
             vx: (Math.random() - 0.5) * 8,
             vy: (Math.random() - 0.5) * 8,
-            life: 25,
-            maxLife: 25,
+            life: 25, maxLife: 25,
             color: color || '#e94560',
             size: 3 + Math.random() * 3
         });
@@ -135,12 +92,12 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // Håndtering av oppskyting i høyre kanal
+    // 1. Håndtering av oppskyting i høyre kanal
     if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
         if (ball.y <= 150) {
             ball.vx = -7;
-            ball.vy = -3;
+            ball.vy = -4;
         }
     } else {
         ball.vy += GRAVITY;
@@ -148,32 +105,101 @@ setInterval(() => {
         ball.y += ball.vy;
     }
 
-    const walls = makeWalls();
-    const fL = getFlipLeftEnd();
-    const fR = getFlipRightEnd();
-
-    const allSegments = [...walls,
-        { x1: fL.x1, y1: fL.y1, x2: fL.x2, y2: fL.y2, isFlipper: true, isLeft: true },
-        { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2, isFlipper: true, isLeft: false }
-    ];
-
-    for (const w of allSegments) {
-        collideBallSegment(w);
+    // --- UTENFOR- SIKKERHETSREGLER (UGGEN-STOPPER / INGEN FLUKT) ---
+    // Venstre yttervegg (X = 80)
+    if (ball.x - ball.r < 80) {
+        ball.x = 80 + ball.r;
+        ball.vx = Math.abs(ball.vx) * 0.8;
+    }
+    // Høyre yttervegg (X = 720) - unntatt når ballen er i utskytningskanalen i bunnen
+    if (ball.x + ball.r > 720 && ball.y > 150 && !(ball.x > 620 && ball.y > 980)) {
+        ball.x = 720 - ball.r;
+        ball.vx = -Math.abs(ball.vx) * 0.8;
+    }
+    // Toppvegg / tak (Y = 25)
+    if (ball.y - ball.r < 25) {
+        ball.y = 25 + ball.r;
+        ball.vy = Math.abs(ball.vy) * 0.8;
+    }
+    // Skillevegg mellom bane og utskytningskanal (X = 620)
+    if (ball.y > 150 && ball.y < 980 && ball.x > 610 && ball.x < 630) {
+        if (ball.vx > 0) { // Prøver å gå fra banen og inn i kanalen
+            ball.x = 620 - ball.r;
+            ball.vx = -Math.abs(ball.vx) * 0.8;
+        }
     }
 
+    // --- ROBUUST FLIPPER-FYSIKK (Garantert treff og dult) ---
+    const leftAngle = flipStates.left ? -0.55 : 0.35;
+    const rightAngle = flipStates.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
+
+    const fL = {
+        x1: leftFlipperPivot.x, y1: leftFlipperPivot.y,
+        x2: leftFlipperPivot.x + Math.cos(leftAngle) * FLIPPER_LEN,
+        y2: leftFlipperPivot.y + Math.sin(leftAngle) * FLIPPER_LEN
+    };
+    const fR = {
+        x1: rightFlipperPivot.x, y1: rightFlipperPivot.y,
+        x2: rightFlipperPivot.x + Math.cos(rightAngle) * FLIPPER_LEN,
+        y2: rightFlipperPivot.y + Math.sin(rightAngle) * FLIPPER_LEN
+    };
+
+    [ { seg: fL, isLeft: true, flipping: flipStates.left }, 
+      { seg: fR, isLeft: false, flipping: flipStates.right } ].forEach(f => {
+        const w = f.seg;
+        const dx = w.x2 - w.x1;
+        const dy = w.y2 - w.y1;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return;
+
+        let t = ((ball.x - w.x1) * dx + (ball.y - w.y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const closestX = w.x1 + t * dx;
+        const closestY = w.y1 + t * dy;
+
+        const distX = ball.x - closestX;
+        const distY = ball.y - closestY;
+        const dist = Math.sqrt(distX * distX + distY * distY);
+
+        // Ekstra raus kollisjonssone for spakene slik at de aldri glipper
+        if (dist < ball.r + 8) {
+            const nx = distX / (dist || 1);
+            const ny = distY / (dist || 1);
+
+            // Skyv ballen ut av flipperen umiddelbart
+            ball.x = closestX + nx * (ball.r + 9);
+            ball.y = closestY + ny * (ball.r + 9);
+
+            if (f.flipping) {
+                // HVIS SPAKEN ER AKTIV: Sla ballen bestemt opp og inn i banen!
+                ball.vy = -21;
+                ball.vx = f.isLeft ? 10 : -10;
+            } else {
+                // Vanlig sprett fra passiv spak
+                const dot = ball.vx * nx + ball.vy * ny;
+                ball.vx = (ball.vx - 2 * dot * nx) * 0.8;
+                ball.vy = (ball.vy - 2 * dot * ny) * 0.8;
+            }
+        }
+    });
+
+    // --- BUMPERS / HINDRE ---
     for (const b of bumpers) {
         if (b.hitFlash > 0) b.hitFlash -= 1;
         const dx = ball.x - b.x;
         const dy = ball.y - b.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < b.r + ball.r) {
-            const nx = dx / dist;
-            const ny = dy / dist;
+            const nx = dx / (dist || 1);
+            const ny = dy / (dist || 1);
             ball.x = b.x + nx * (b.r + ball.r + 2);
             ball.y = b.y + ny * (b.r + ball.r + 2);
+            
             const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            ball.vx = nx * speed * 0.7 + nx * 4;
-            ball.vy = ny * speed * 0.7 + ny * 4;
+            ball.vx = nx * Math.max(speed, 6) + nx * 4;
+            ball.vy = ny * Math.max(speed, 6) + ny * 4;
+            
             b.hitFlash = 10;
             addParticles(b.x, b.y, b.color, 12);
             
@@ -190,48 +216,6 @@ setInterval(() => {
 
     io.emit('state', buildGameState());
 }, 1000 / 60);
-
-function collideBallSegment(w) {
-    const dx = w.x2 - w.x1;
-    const dy = w.y2 - w.y1;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq === 0) return;
-
-    let t = ((ball.x - w.x1) * dx + (ball.y - w.y1) * dy) / lenSq;
-    t = Math.max(0, Math.min(1, t));
-
-    const closestX = w.x1 + t * dx;
-    const closestY = w.y1 + t * dy;
-
-    const distX = ball.x - closestX;
-    const distY = ball.y - closestY;
-    const dist = Math.sqrt(distX * distX + distY * distY);
-
-    const hitRadius = w.isFlipper ? ball.r + 4 : ball.r;
-
-    if (dist < hitRadius && dist > 0) {
-        const nx = distX / dist;
-        const ny = distY / dist;
-
-        ball.x = closestX + nx * (hitRadius + 1);
-        ball.y = closestY + ny * (hitRadius + 1);
-
-        const dot = ball.vx * nx + ball.vy * ny;
-        ball.vx -= 2 * dot * nx;
-        ball.vy -= 2 * dot * ny;
-
-        ball.vx *= 0.85;
-        ball.vy *= 0.85;
-
-        if (w.isFlipper) {
-            const flippingUp = (w.isLeft && flipStates.left) || (!w.isLeft && flipStates.right);
-            if (flippingUp) {
-                ball.vy = -19;
-                ball.vx += (w.isLeft ? 9 : -9);
-            }
-        }
-    }
-}
 
 function buildGameState() {
     return {
