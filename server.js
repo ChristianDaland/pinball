@@ -15,22 +15,24 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Toppkurv / bue som leder ballen fra høyre kanal inn på spillefeltet
-        { x1: 720, y1: 250, x2: 720, y2: 60 },
+        // Toppbue / kurv som leder ballen ut fra høyre kanal og inn på spillefeltet
+        { x1: 720, y1: 140, x2: 720, y2: 60 },
         { x1: 720, y1: 60,  x2: 600, y2: 25 },
         { x1: 600, y1: 25,  x2: 400, y2: 20 },
         { x1: 400, y1: 20,  x2: 200, y2: 25 },
         { x1: 200, y1: 25,  x2: 100, y2: 60 },
         { x1: 100, y1: 60,  x2: 80,  y2: 140 },
         
-        // Yttervegger på spillfeltet
+        // Venstre yttervegg (slik at ballen ikke faller ut til venstre)
         { x1: 80,  y1: 140, x2: 20,  y2: 400 },
         { x1: 20,  y1: 400, x2: 80,  y2: 980 },
-        { x1: 720, y1: 250, x2: 780, y2: 400 },
+        
+        // Høyre yttervegg
+        { x1: 720, y1: 140, x2: 780, y2: 400 },
         { x1: 780, y1: 400, x2: 720, y2: 980 },
         
-        // SKILLEVEGG FOR HØYRE KANAL: Stopper ved y: 250 slik at toppen er helt åpen inn til banen!
-        { x1: 720, y1: 250, x2: 720, y2: 1150 },
+        // Skillevegg for høyre kanal (stoppes ved y: 140 slik at det er en åpen bue i toppen)
+        { x1: 720, y1: 140, x2: 720, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
@@ -134,18 +136,17 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // Sjekk for høyre kanal og overgang til toppen
-    if (ball.x > 720 && ball.y > 200 && ball.vy < 0) {
+    // Fysisk håndtering for oppskyting i høyre kanal og overgang i toppen
+    if (ball.x > 720 && ball.y > 140 && ball.vy < 0) {
         ball.y += ball.vy;
-        if (ball.y <= 250) {
-            // Svinger mot venstre når den treffer toppen av åpningen
-            ball.vx = -7;
-            ball.vy = -5;
+        if (ball.y <= 140) {
+            ball.vx = -8;
+            ball.vy = -4;
         }
-    } else if (ball.x > 500 && ball.y <= 250 && ball.vy < 0) {
+    } else if (ball.x > 400 && ball.y <= 140 && ball.vy < 0) {
         ball.x += ball.vx;
         ball.y += ball.vy;
-        ball.vx -= 0.15;
+        ball.vx -= 0.2;
     } else {
         ball.vy += GRAVITY;
         ball.x += ball.vx;
@@ -242,7 +243,7 @@ function buildGameState() {
         ball: { ...ball },
         flippers: { ...flipStates },
         gameStarted,
-        bumpers: bumpers.map(b => ({ ...b })),
+        bumpers: bumpers.app ? bumpers : bumpers.map(b => ({ ...b })),
         highScores,
     };
 }

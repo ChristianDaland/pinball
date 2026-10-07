@@ -50,20 +50,62 @@ window.addEventListener('resize', resize);
 
 const socket = io();
 
+// --- Lyd / Audio Engine (Pling og plong) ---
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+function playTone(freq, duration, type = 'sine') {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+
 let players = {};
 let scores = {};
 let ball = { x: 50, y: 40, r: 7, active: false };
 let bumpers = [];
 let flippers = { left: false, right: false };
+let lastScore = 0;
 
 socket.on('state', (data) => {
   if (data.players && Array.isArray(data.players)) {
     players = {};
     data.players.forEach(p => { players[p.id] = { name: p.name }; });
   }
-  if (data.scores) scores = data.scores;
+  if (data.scores) {
+    let totalScore = Object.values(data.scores).reduce((a, b) => a + b, 0);
+    if (totalScore > lastScore) {
+      playTone(587.33, 0.15, 'triangle'); // Pling ved poeng!
+      setTimeout(() => playTone(880, 0.2, 'sine'), 80);
+      lastScore = totalScore;
+    }
+    scores = data.scores;
+  }
   if (data.ball) ball = data.ball;
-  bumpers = data.bumpers || [];
+  
+  // Sjekk treff på bumpers for lyseffekter/lyd
+  if (data.bumpers) {
+    data.bumpers.forEach((b, i) => {
+      if (bumpers[i] && b.hitFlash > bumpers[i].hitFlash) {
+        playTone(440 + i * 110, 0.1, 'square'); // Plong
+      }
+    });
+    bumpers = data.bumpers;
+  }
+  
   flippers = data.flippers || { left: false, right: false };
   updateUI();
 });
@@ -92,24 +134,31 @@ function drawGame() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Tegn baner og vegger
+  // Tegn røde vegger og baner
   ctx.save();
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 4;
   ctx.shadowColor = '#e94560';
   ctx.shadowBlur = 10;
   
-  // Toppkurv / bue
+  // Venstre yttervegg
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.19);
+  ctx.moveTo(W * 0.1, H * 0.107);
+  ctx.lineTo(W * 0.025, H * 0.307);
+  ctx.lineTo(W * 0.1, H * 0.753);
+  ctx.stroke();
+
+  // Toppkurv / bue med åpning inn til kanalen
+  ctx.beginPath();
+  ctx.moveTo(W * 0.9, H * 0.107);
   ctx.lineTo(W * 0.9, H * 0.046);
   ctx.quadraticCurveTo(W * 0.5, H * 0.015, W * 0.1, H * 0.046);
   ctx.lineTo(W * 0.1, H * 0.107);
   ctx.stroke();
 
-  // Skillevegg for høyre kanal - stopper oppe ved åpningen (y: 250 / H * 0.19)
+  // Skillevegg for høyre kanal (Plunger lane) som stopper i toppen ved åpningen
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.19);
+  ctx.moveTo(W * 0.9, H * 0.107);
   ctx.lineTo(W * 0.9, H * 0.88);
   ctx.stroke();
 
@@ -209,8 +258,12 @@ function drawGame() {
 }
 
 document.getElementById('launch-btn').addEventListener('click', () => {
+  initAudio();
   socket.emit('ball-launch');
 });
+
+// Sørg for at lydkontekst starter ved første interaksjon på skjermen
+window.addEventListener('click', () => { initAudio(); }, { once: true });
 
 drawGame();
 </script>
