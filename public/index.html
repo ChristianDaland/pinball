@@ -50,7 +50,6 @@ window.addEventListener('resize', resize);
 
 const socket = io();
 
-// Lyd-engine (pling og plong)
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) {
@@ -88,7 +87,7 @@ socket.on('state', (data) => {
   if (data.scores) {
     let totalScore = Object.values(data.scores).reduce((a, b) => a + b, 0);
     if (totalScore > lastScore) {
-      playTone(587.33, 0.15, 'triangle'); // Pling
+      playTone(587.33, 0.15, 'triangle');
       setTimeout(() => playTone(880, 0.2, 'sine'), 80);
       lastScore = totalScore;
     }
@@ -99,7 +98,7 @@ socket.on('state', (data) => {
   if (data.bumpers) {
     data.bumpers.forEach((b, i) => {
       if (bumpers[i] && b.hitFlash > bumpers[i].hitFlash) {
-        playTone(440 + i * 110, 0.1, 'square'); // Plong
+        playTone(440 + i * 90, 0.1, 'square');
       }
     });
     bumpers = data.bumpers;
@@ -133,7 +132,6 @@ function drawGame() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Tegn vegger og baner nøyaktig i henhold til fysikken
   ctx.save();
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 4;
@@ -142,35 +140,35 @@ function drawGame() {
   
   // Venstre yttervegg
   ctx.beginPath();
-  ctx.moveTo(W * 0.1, H * 0.153);
+  ctx.moveTo(W * 0.1, H * 0.115);
   ctx.lineTo(W * 0.1, H * 0.753);
   ctx.stroke();
 
   // Høyre yttervegg
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.153);
+  ctx.moveTo(W * 0.9, H * 0.115);
   ctx.lineTo(W * 0.9, H * 0.753);
   ctx.stroke();
 
   // Toppkurv / bue
   ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.153);
+  ctx.moveTo(W * 0.9, H * 0.115);
   ctx.lineTo(W * 0.9, H * 0.046);
   ctx.quadraticCurveTo(W * 0.5, H * 0.015, W * 0.1, H * 0.046);
-  ctx.lineTo(W * 0.1, H * 0.153);
+  ctx.lineTo(W * 0.1, H * 0.115);
   ctx.stroke();
 
-  // Skillevegg for høyre kanal (stoppes ved y: 200 / H * 0.153 slik at toppen er åpen)
+  // Skillevegg for høyre kanal
   ctx.beginPath();
-  ctx.moveTo(W * 0.8, H * 0.153);
-  ctx.lineTo(W * 0.8, H * 0.88);
+  ctx.moveTo(W * 0.775, H * 0.115);
+  ctx.lineTo(W * 0.775, H * 0.88);
   ctx.stroke();
 
-  // Fjær i bunnen av høyre kanal
+  // Fjær i bunn av høyre kanal
   ctx.strokeStyle = '#f59e0b';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  let springX = W * 0.85;
+  let springX = W * 0.835;
   let springTop = H * 0.85;
   let springBottom = H * 0.92;
   ctx.moveTo(springX, springBottom);
@@ -182,7 +180,7 @@ function drawGame() {
 
   ctx.restore();
 
-  // Tegn bumpers
+  // Tegn bumpers (hindre)
   bumpers.forEach(b => {
     const bx = b.x / 800 * W;
     const by = b.y / 1300 * H;
@@ -210,7 +208,7 @@ function drawGame() {
   // Tegn venstre flipper
   const pivotL = { x: 230 / 800 * W, y: 1100 / 1300 * H };
   const fLen = 110 / 800 * W;
-  const leftAngle = flippers.left ? -0.4 : 0.35;
+  const leftAngle = flippers.left ? -0.5 : 0.35;
   
   ctx.save();
   ctx.lineWidth = Math.max(8, fLen * 0.15);
@@ -226,8 +224,8 @@ function drawGame() {
   ctx.restore();
 
   // Tegn høyre flipper
-  const pivotR = { x: 570 / 800 * W, y: 1100 / 1300 * H };
-  const rightAngle = flippers.right ? (Math.PI + 0.4) : (Math.PI - 0.35);
+  const pivotR = { x: 470 / 800 * W, y: 1100 / 1300 * H };
+  const rightAngle = flippers.right ? (Math.PI + 0.5) : (Math.PI - 0.35);
   
   ctx.save();
   ctx.lineWidth = Math.max(8, fLen * 0.15);

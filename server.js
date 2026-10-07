@@ -10,43 +10,46 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 
 const W = 800, H = 1300;
-const GRAVITY = 0.12;
+const GRAVITY = 0.11;
 const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Toppbue / kurv (fra høyre kanal over til venstre side)
-        { x1: 720, y1: 200, x2: 720, y2: 60 },
+        // Toppkurv / bue fra høyre kanal over til venstre side
+        { x1: 720, y1: 150, x2: 720, y2: 60 },
         { x1: 720, y1: 60,  x2: 600, y2: 25 },
         { x1: 600, y1: 25,  x2: 400, y2: 20 },
         { x1: 400, y1: 20,  x2: 200, y2: 25 },
         { x1: 200, y1: 25,  x2: 100, y2: 60 },
-        { x1: 100, y1: 60,  x2: 80,  y2: 200 },
+        { x1: 100, y1: 60,  x2: 80,  y2: 150 },
         
-        // Venstre yttervegg (glatt og jevn bue)
-        { x1: 80,  y1: 200, x2: 80,  y2: 980 },
+        // Venstre yttervegg
+        { x1: 80,  y1: 150, x2: 80,  y2: 980 },
         
-        // Høyre yttervegg (for selve kabinettet/bordet)
-        { x1: 720, y1: 200, x2: 720, y2: 980 },
+        // Høyre yttervegg
+        { x1: 720, y1: 150, x2: 720, y2: 980 },
         
-        // Skillevegg for høyre kanal (stopper ved y: 200 slik at det er åpent i toppen for ballen)
-        { x1: 640, y1: 200, x2: 640, y2: 1150 },
+        // Skillevegg for høyre kanal
+        { x1: 620, y1: 150, x2: 620, y2: 1150 },
         
         // Flipper-guider i bunn
         { x1: 80,  y1: 980, x2: 230, y2: 1100 },
-        { x1: 640, y1: 980, x2: 570, y2: 1100 },
+        { x1: 620, y1: 980, x2: 470, y2: 1100 },
     ];
 }
 
+// Flere hindre spredt utover brettet
 const bumpers = [
-    { x: 300, y: 380, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
-    { x: 500, y: 380, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
-    { x: 400, y: 520, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
+    { x: 260, y: 300, r: 30, score: 50, color: '#ff6b6b', hitFlash: 0 },
+    { x: 440, y: 300, r: 30, score: 50, color: '#4ecdc4', hitFlash: 0 },
+    { x: 350, y: 440, r: 25, score: 100, color: '#ffe66d', hitFlash: 0 },
+    { x: 200, y: 580, r: 25, score: 75, color: '#a8e6cf', hitFlash: 0 },
+    { x: 500, y: 580, r: 25, score: 75, color: '#ff8b94', hitFlash: 0 },
 ];
 
 let players = {};
 let scores = {};
-let ball = { x: 680, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
+let ball = { x: 660, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
 let highScores = [];
@@ -55,7 +58,7 @@ const FLIPPER_LEN = 110;
 
 function getFlipLeftEnd() {
     const px = 230, py = 1100;
-    const angle = flipStates.left ? -0.4 : 0.35;
+    const angle = flipStates.left ? -0.5 : 0.35;
     return {
         x1: px, y1: py,
         x2: px + Math.cos(angle) * FLIPPER_LEN,
@@ -64,8 +67,8 @@ function getFlipLeftEnd() {
 }
 
 function getFlipRightEnd() {
-    const px = 570, py = 1100;
-    const angle = flipStates.right ? (Math.PI + 0.4) : (Math.PI - 0.35);
+    const px = 470, py = 1100;
+    const angle = flipStates.right ? (Math.PI + 0.5) : (Math.PI - 0.35);
     return {
         x1: px, y1: py,
         x2: px + Math.cos(angle) * FLIPPER_LEN,
@@ -86,12 +89,11 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
-    // Skyter ballen oppover i høyre kanal (mellom x: 640 og x: 720)
     socket.on('ball-launch', () => {
-        ball.x = 680;
+        ball.x = 660;
         ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -26; 
+        ball.vy = -27; 
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -110,7 +112,7 @@ io.on('connection', (socket) => {
 });
 
 function resetBall() {
-    ball.x = 680;
+    ball.x = 660;
     ball.y = 1150;
     ball.vx = 0;
     ball.vy = 0;
@@ -134,14 +136,14 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // Fysisk håndtering for oppskyting i høyre kanal (x mellom 640 og 720)
-    if (ball.x > 640 && ball.x < 720 && ball.y > 200 && ball.vy < 0) {
+    // Håndtering av oppskyting i høyre kanal
+    if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
-        if (ball.y <= 200) {
-            ball.vx = -8;
-            ball.vy = -4;
+        if (ball.y <= 150) {
+            ball.vx = -9;
+            ball.vy = -5;
         }
-    } else if (ball.x > 400 && ball.y <= 200 && ball.vy < 0) {
+    } else if (ball.x > 350 && ball.y <= 150 && ball.vy < 0) {
         ball.x += ball.vx;
         ball.y += ball.vy;
         ball.vx -= 0.2;
@@ -224,11 +226,12 @@ function collideBallSegment(w, isFlipper) {
         ball.vx *= 0.85;
         ball.vy *= 0.85;
 
+        // Kraftig forbedret flipper-respons (slår ballen oppover med kraft)
         if (isFlipper) {
             const flippingUp = (w.x1 < 400 && flipStates.left) || (w.x1 > 400 && flipStates.right);
             if (flippingUp) {
-                ball.vy -= 12;
-                ball.vx += (Math.random() - 0.5) * 6;
+                ball.vy = -16; // Sender ballen bestemt oppover i brettet igjen
+                ball.vx += (w.x1 < 400 ? 5 : -5); // Gir den retning mot midten
             }
         }
     }
