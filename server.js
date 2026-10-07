@@ -139,45 +139,13 @@ setInterval(() => {
     if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
         if (ball.y <= 150) {
-            ball.vx = -8;
-            ball.vy = -4;
+            ball.vx = -7;
+            ball.vy = -3;
         }
-    } else if (ball.x > 350 && ball.y <= 150 && ball.vy < 0) {
-        ball.x += ball.vx;
-        ball.y += ball.vy;
-        ball.vx -= 0.2;
     } else {
         ball.vy += GRAVITY;
         ball.x += ball.vx;
         ball.y += ball.vy;
-    }
-
-    // --- UTVIKLET SIKKERHETSREGLER FOR VÆGGINGER (Hindre lekkasje) ---
-    // 1. Venstre vegg
-    if (ball.x - ball.r < 80) {
-        ball.x = 80 + ball.r;
-        ball.vx = Math.abs(ball.vx) * 0.75;
-    }
-    // 2. Høyre yttervegg
-    if (ball.x + ball.r > 720 && ball.y > 150) {
-        ball.x = 720 - ball.r;
-        ball.vx = -Math.abs(ball.vx) * 0.75;
-    }
-    // 3. Skillevegg for høyre kanal (hindrer at ballen slår seg gjennom høyreveggen fra spillfeltet og inn i kanalen igjen)
-    if (ball.y > 150 && ball.y < 980) {
-        if (ball.x > 610 && ball.x < 630) {
-            if (ball.vx < 0) { // Kommer fra kanalen og vil inn på banen (tillat)
-                // OK
-            } else { // Kommer fra banen og prøver å gå gjennom høyrekanalsveggen
-                ball.x = 620 - ball.r;
-                ball.vx = -Math.abs(ball.vx) * 0.75;
-            }
-        }
-    }
-    // 4. Toppvegg / tak
-    if (ball.y - ball.r < 20) {
-        ball.y = 20 + ball.r;
-        ball.vy = Math.abs(ball.vy) * 0.75;
     }
 
     const walls = makeWalls();
@@ -239,7 +207,6 @@ function collideBallSegment(w) {
     const distY = ball.y - closestY;
     const dist = Math.sqrt(distX * distX + distY * distY);
 
-    // Utvidet kollisjonsradius for flippere slik at de aldri glipper
     const hitRadius = w.isFlipper ? ball.r + 4 : ball.r;
 
     if (dist < hitRadius && dist > 0) {
@@ -259,7 +226,6 @@ function collideBallSegment(w) {
         if (w.isFlipper) {
             const flippingUp = (w.isLeft && flipStates.left) || (!w.isLeft && flipStates.right);
             if (flippingUp) {
-                // Sikker og kraftig respons som slår ballen oppover
                 ball.vy = -19;
                 ball.vx += (w.isLeft ? 9 : -9);
             }
