@@ -225,8 +225,9 @@ setInterval(() => {
             addScorePopup(bumper.x, bumper.y - 30, bumper.score, bumper.color);
             bumper.hitFlash = 0.3;
 
-            // Send lyd
-            io.emit(generateAudio(440 + Math.random() * 440, 0.15));
+            // Send lyd-lyd til klienter
+            const freq = 440 + Math.random() * 440;
+            io.emit('sound', { freq: freq, duration: 0.15 });
         }
     }
 
@@ -345,7 +346,7 @@ function buildGameState() {
     };
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
     console.log(`🎰 Pinball server kjører på port ${PORT}`);
     console.log(`📱 Mobil: http://localhost:${PORT}/mobile.html`);

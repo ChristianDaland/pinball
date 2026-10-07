@@ -154,21 +154,25 @@ body {
 <script>
 const socket = io();
 let playerName = 'Spiller_' + Math.floor(Math.random() * 9000 + 1000);
-document.getElementById('player-name').textContent = playerName;
 
-// Store name in localStorage for consistency
+// Restore name from localStorage for consistency across reloads
 const storedName = localStorage.getItem('pinball-player');
 if (storedName) {
   playerName = storedName;
-  document.getElementById('player-name').textContent = playerName;
 }
+
+// Save to localStorage so other tabs/devices can pick it up
+localStorage.setItem('pinball-player', playerName);
+
+document.getElementById('player-name').textContent = playerName;
 
 socket.emit('set-name', playerName);
 
 let flipInterval = null;
 
 function sendFlip(side, active) {
-  socket.emit('flip', { player: playerName, side: side, active: active });
+  // Server expects 'flip-left' or 'flip-right', not 'flip'
+  socket.emit(side === 'left' ? 'flip-left' : 'flip-right', active);
   const btn = document.getElementById(side === 'left' ? 'flip-left' : 'flip-right');
   
   if (active) {
@@ -177,7 +181,7 @@ function sendFlip(side, active) {
     
     if (!flipInterval) {
       flipInterval = setInterval(() => {
-        socket.emit('flip', { player: playerName, side: side, active: true });
+        socket.emit(side === 'left' ? 'flip-left' : 'flip-right', active);
         if (navigator.vibrate) navigator.vibrate(10);
       }, 80);
     }

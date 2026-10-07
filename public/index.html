@@ -79,7 +79,11 @@ let gameObjects = {};
 socket.on('state', (data) => {
   if (data.players) players = data.players;
   if (data.scores) scores = data.scores;
-  if (data.ball) ball = data.ball;
+  if (data.ball) {
+    ball = data.ball;
+    // Normalize radius field name
+    if (ball.r === undefined && ball.radius !== undefined) ball.r = ball.radius;
+  }
   if (data.bumpers) bumpers = data.bumpers;
   if (data.flippers !== undefined) flippers = data.flippers;
   if (data.slingshots) slingshots = data.slingshots;
