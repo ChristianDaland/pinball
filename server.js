@@ -23,7 +23,7 @@ function makeWalls() {
         { x1: 200, y1: 25,  x2: 100, y2: 60 },
         { x1: 100, y1: 60,  x2: 80,  y2: 150 },
         
-        // Venstre yttervegg
+        // Venstre yttervegg (plassert på x = 80)
         { x1: 80,  y1: 150, x2: 80,  y2: 980 },
         
         // Høyre yttervegg
@@ -38,7 +38,6 @@ function makeWalls() {
     ];
 }
 
-// Flere hindre spredt utover brettet
 const bumpers = [
     { x: 260, y: 300, r: 30, score: 50, color: '#ff6b6b', hitFlash: 0 },
     { x: 440, y: 300, r: 30, score: 50, color: '#4ecdc4', hitFlash: 0 },
@@ -136,12 +135,11 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // Håndtering av oppskyting i høyre kanal
     if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
         if (ball.y <= 150) {
-            ball.vx = -9;
-            ball.vy = -5;
+            ball.vx = -8;
+            ball.vy = -4;
         }
     } else if (ball.x > 350 && ball.y <= 150 && ball.vy < 0) {
         ball.x += ball.vx;
@@ -151,6 +149,12 @@ setInterval(() => {
         ball.vy += GRAVITY;
         ball.x += ball.vx;
         ball.y += ball.vy;
+    }
+
+    // Ekstra sikkerhetssjekk: Hardt grensesnitt for venstreveggen (slik at den aldri kan gå gjennom x < 87)
+    if (ball.x - ball.r < 80) {
+        ball.x = 80 + ball.r;
+        ball.vx = Math.abs(ball.vx) * 0.8; // Spretter tilbake inn på banen
     }
 
     const walls = makeWalls();
@@ -177,8 +181,9 @@ setInterval(() => {
             ball.x = b.x + nx * (b.r + ball.r + 2);
             ball.y = b.y + ny * (b.r + ball.r + 2);
             const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            ball.vx = nx * speed * 0.9 + nx * 6;
-            ball.vy = ny * speed * 0.9 + ny * 6;
+            // Demper energien litt slik at den ikke skyter ut med ekstrem fart
+            ball.vx = nx * speed * 0.7 + nx * 4;
+            ball.vy = ny * speed * 0.7 + ny * 4;
             b.hitFlash = 10;
             addParticles(b.x, b.y, b.color, 12);
             
@@ -223,15 +228,14 @@ function collideBallSegment(w, isFlipper) {
         ball.vx -= 2 * dot * nx;
         ball.vy -= 2 * dot * ny;
 
-        ball.vx *= 0.85;
-        ball.vy *= 0.85;
+        ball.vx *= 0.8;
+        ball.vy *= 0.8;
 
-        // Kraftig forbedret flipper-respons (slår ballen oppover med kraft)
         if (isFlipper) {
             const flippingUp = (w.x1 < 400 && flipStates.left) || (w.x1 > 400 && flipStates.right);
             if (flippingUp) {
-                ball.vy = -16; // Sender ballen bestemt oppover i brettet igjen
-                ball.vx += (w.x1 < 400 ? 5 : -5); // Gir den retning mot midten
+                ball.vy = -16;
+                ball.vx += (w.x1 < 400 ? 5 : -5);
             }
         }
     }
