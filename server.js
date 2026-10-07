@@ -11,7 +11,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const W = 800, H = 1300;
 const GRAVITY = 0.11;
-const BALL_R = 9; // Litt større ball for mer stabil kollisjon
+const BALL_R = 9;
 
 const bumpers = [
     { x: 260, y: 300, r: 30, score: 50, color: '#ff6b6b', hitFlash: 0 },
@@ -29,8 +29,6 @@ let gameStarted = true;
 let highScores = [];
 
 const FLIPPER_LEN = 110;
-
-// Flipper definisjoner (pivot-punkter)
 const leftFlipperPivot = { x: 230, y: 1100 };
 const rightFlipperPivot = { x: 470, y: 1100 };
 
@@ -48,8 +46,10 @@ io.on('connection', (socket) => {
     socket.on('ball-launch', () => {
         ball.x = 660;
         ball.y = 1150;
-        ball.vx = 0;
-        ball.vy = -28; 
+        // Litt variasjon hver gang slik at ballen tar ulike veier
+        const randomVariation = (Math.random() - 0.5) * 3;
+        ball.vx = -4 + randomVariation; 
+        ball.vy = -25 - Math.random() * 5; 
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -92,12 +92,12 @@ function addParticles(x, y, color, count) {
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
 
-    // 1. Håndtering av oppskyting i høyre kanal
+    // Håndtering av oppskyting i høyre kanal
     if (ball.x > 620 && ball.x < 720 && ball.y > 150 && ball.vy < 0) {
         ball.y += ball.vy;
         if (ball.y <= 150) {
-            ball.vx = -7;
-            ball.vy = -4;
+            ball.vx = -8 + (Math.random() - 0.5) * 2;
+            ball.vy = -5;
         }
     } else {
         ball.vy += GRAVITY;
@@ -105,38 +105,34 @@ setInterval(() => {
         ball.y += ball.vy;
     }
 
-    // --- UTENFOR- SIKKERHETSREGLER (UGGEN-STOPPER / INGEN FLUKT) ---
-    // Venstre yttervegg (X = 80)
+    // --- SIKKERHETSREGLER MOT UTFLUKT ---
     if (ball.x - ball.r < 80) {
         ball.x = 80 + ball.r;
         ball.vx = Math.abs(ball.vx) * 0.8;
     }
-    // Høyre yttervegg (X = 720) - unntatt når ballen er i utskytningskanalen i bunnen
     if (ball.x + ball.r > 720 && ball.y > 150 && !(ball.x > 620 && ball.y > 980)) {
         ball.x = 720 - ball.r;
         ball.vx = -Math.abs(ball.vx) * 0.8;
     }
-    // Toppvegg / tak (Y = 25)
     if (ball.y - ball.r < 25) {
         ball.y = 25 + ball.r;
         ball.vy = Math.abs(ball.vy) * 0.8;
     }
-    // Skillevegg mellom bane og utskytningskanal (X = 620)
     if (ball.y > 150 && ball.y < 980 && ball.x > 610 && ball.x < 630) {
-        if (ball.vx > 0) { // Prøver å gå fra banen og inn i kanalen
+        if (ball.vx > 0) {
             ball.x = 620 - ball.r;
             ball.vx = -Math.abs(ball.vx) * 0.8;
         }
     }
 
-    // --- ROBUUST FLIPPER-FYSIKK (Garantert treff og dult) ---
+    // --- ROBUUST FLIPPER-FYSIKK ---
     const leftAngle = flipStates.left ? -0.55 : 0.35;
     const rightAngle = flipStates.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
 
     const fL = {
         x1: leftFlipperPivot.x, y1: leftFlipperPivot.y,
         x2: leftFlipperPivot.x + Math.cos(leftAngle) * FLIPPER_LEN,
-        y2: leftFlipperPivot.y + Math.sin(leftAngle) * FLIPPER_LEN
+        y2: leftFlipperPivot.y + Math.sin(angle = leftAngle) * FLIPPER_LEN
     };
     const fR = {
         x1: rightFlipperPivot.x, y1: rightFlipperPivot.y,
@@ -162,29 +158,25 @@ setInterval(() => {
         const distY = ball.y - closestY;
         const dist = Math.sqrt(distX * distX + distY * distY);
 
-        // Ekstra raus kollisjonssone for spakene slik at de aldri glipper
-        if (dist < ball.r + 8) {
+        if (dist < ball.r + 10) {
             const nx = distX / (dist || 1);
             const ny = distY / (dist || 1);
 
-            // Skyv ballen ut av flipperen umiddelbart
-            ball.x = closestX + nx * (ball.r + 9);
-            ball.y = closestY + ny * (ball.r + 9);
+            ball.x = closestX + nx * (ball.r + 11);
+            ball.y = closestY + ny * (ball.r + 11);
 
             if (f.flipping) {
-                // HVIS SPAKEN ER AKTIV: Sla ballen bestemt opp og inn i banen!
-                ball.vy = -21;
-                ball.vx = f.isLeft ? 10 : -10;
+                ball.vy = -22;
+                ball.vx = f.isLeft ? 12 : -12;
             } else {
-                // Vanlig sprett fra passiv spak
                 const dot = ball.vx * nx + ball.vy * ny;
-                ball.vx = (ball.vx - 2 * dot * nx) * 0.8;
-                ball.vy = (ball.vy - 2 * dot * ny) * 0.8;
+                ball.vx = (ball.vx - 2 * dot * nx) * 0.85;
+                ball.vy = (ball.vy - 2 * dot * ny) * 0.85;
             }
         }
     });
 
-    // --- BUMPERS / HINDRE ---
+    // --- BUMPERS ---
     for (const b of bumpers) {
         if (b.hitFlash > 0) b.hitFlash -= 1;
         const dx = ball.x - b.x;
@@ -197,8 +189,8 @@ setInterval(() => {
             ball.y = b.y + ny * (b.r + ball.r + 2);
             
             const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            ball.vx = nx * Math.max(speed, 6) + nx * 4;
-            ball.vy = ny * Math.max(speed, 6) + ny * 4;
+            ball.vx = nx * Math.max(speed, 6) + nx * 5;
+            ball.vy = ny * Math.max(speed, 6) + ny * 5;
             
             b.hitFlash = 10;
             addParticles(b.x, b.y, b.color, 12);
