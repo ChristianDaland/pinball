@@ -2,28 +2,15 @@
 <html lang="nb">
 <head>
 <meta charset="UTF-8">
-<title>⚡ Pinball Arena</title>
+<title>GårdsPengBall 🐓</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #050510; font-family: 'Segoe UI', sans-serif; }
-#ui { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 10; }
-#scorebar { display: flex; justify-content: center; gap: 40px; padding: 12px; }
-.player-score { background: rgba(0,0,0,0.6); border: 1px solid rgba(233,69,96,0.4); border-radius: 8px; padding: 8px 20px; color: #fff; text-align: center; }
-.player-score .name { font-size: 13px; color: #888; }
-.player-score .pts { font-size: 28px; font-weight: bold; color: #4ade80; text-shadow: 0 0 10px rgba(74,222,128,0.5); }
-#ball-launch { position: absolute; bottom: 20px; right: 15px; z-index: 20; }
-#ball-launch button { width: 80px; height: 80px; border-radius: 50%; font-size: 24px; background: radial-gradient(circle, #e94560, #c23152); color: #fff; border: 3px solid #ff6b81; cursor: pointer; box-shadow: 0 0 20px rgba(233,69,96,0.6); }
-#ball-launch button:active { transform: scale(0.9); }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0f06; font-family: 'Segoe UI', sans-serif; }
+canvas { display: block; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-
-<div id="ui">
-  <div id="scorebar"></div>
-</div>
-
-<div id="ball-launch"><button id="launch-btn">🎱</button></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -31,10 +18,10 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let W, H;
 
+/* ── responsive canvas ── */
 function resize() {
   const ratio = 800 / 1300;
   const winRatio = window.innerWidth / window.innerHeight;
-  
   if (winRatio > ratio) {
     canvas.height = Math.min(window.innerHeight, 900);
     canvas.width = canvas.height * ratio;
@@ -50,33 +37,33 @@ window.addEventListener('resize', resize);
 
 const socket = io();
 
+/* ── audio ── */
 let audioCtx = null;
 function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
-function playTone(freq, duration, type = 'sine') {
+function playTone(freq, dur, type) {
   if (!audioCtx) return;
   try {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + duration);
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueTime = 0.001;
+    g.gain.setValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur);
   } catch (e) {}
 }
 
+/* ── game state ── */
 let players = {};
 let scores = {};
 let ball = { x: 50, y: 40, r: 7, active: false };
 let bumpers = [];
 let flippers = { left: false, right: false };
+let particles = [];
 let lastScore = 0;
 
 socket.on('state', (data) => {
@@ -86,187 +73,603 @@ socket.on('state', (data) => {
   }
   if (data.scores) {
     let totalScore = Object.values(data.scores).reduce((a, b) => a + b, 0);
-    if (totalScore > lastScore) {
-      playTone(587.33, 0.15, 'triangle');
-      setTimeout(() => playTone(880, 0.2, 'sine'), 80);
-      lastScore = totalScore;
+    if (totalScore > lastScore && lastScore > 0) {
+      playTone(587, 0.12, 'triangle');
+      setTimeout(() => playTone(880, 0.18, 'sine'), 60);
     }
     scores = data.scores;
+    lastScore = totalScore;
   }
-  if (data.ball) ball = data.ball;
-  
-  if (data.bumpers) {
-    data.bumpers.forEach((b, i) => {
-      if (bumpers[i] && b.hitFlash > bumpers[i].hitFlash) {
-        playTone(440 + i * 90, 0.1, 'square');
-      }
-    });
-    bumpers = data.bumpers;
-  }
-  
-  flippers = data.flippers || { left: false, right: false };
-  updateUI();
+  if (data.ball) ball = { ...ball, ...data.ball };
+  if (data.bumpers) bumpers = data.bumpers;
+  if (data.flippers) flippers = data.flippers;
+  if (data.particles) particles = data.particles;
 });
 
-function updateUI() {
-  const bar = document.getElementById('scorebar');
-  const keys = Object.keys(scores);
-  if (keys.length === 0) {
-    bar.innerHTML = '<div class="player-score"><div class="name">Venter på spiller via QR...</div><div class="pts">0</div></div>';
-    return;
-  }
-  
-  let html = '';
-  keys.forEach(id => {
-    const name = players[id]?.name || 'Spiller';
-    html += `<div class="player-score"><div class="name">${name}</div><div class="pts">${scores[id]}</div></div>`;
-  });
-  bar.innerHTML = html;
-}
+/* ── helpers ── */
+function toX(v) { return v / 800 * W; }
+function toY(v) { return v / 1300 * H; }
+function toR(v) { return v / 800 * W; }
 
-function drawGame() {
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#0e0e24');
-  grad.addColorStop(0.5, '#141438');
-  grad.addColorStop(1, '#0a0a1c');
-  ctx.fillStyle = grad;
+/* ── draw playfield background ── */
+function drawBackground() {
+  // Dark green meadow gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#1a3a20');   // top - darker forest green
+  bg.addColorStop(0.4, '#1e4a28'); // mid-meadow
+  bg.addColorStop(0.75, '#2d6b38'); // lighter meadow
+  bg.addColorStop(1, '#1a3a20');   // bottom drain edge
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
+  // Subtle grass texture
   ctx.save();
-  ctx.strokeStyle = '#e94560';
-  ctx.lineWidth = 4;
-  ctx.shadowColor = '#e94560';
-  ctx.shadowBlur = 10;
-  
-  // Venstre yttervegg
-  ctx.beginPath();
-  ctx.moveTo(W * 0.1, H * 0.115);
-  ctx.lineTo(W * 0.1, H * 0.753);
-  ctx.stroke();
-
-  // Høyre yttervegg
-  ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.115);
-  ctx.lineTo(W * 0.9, H * 0.753);
-  ctx.stroke();
-
-  // Toppkurv / bue
-  ctx.beginPath();
-  ctx.moveTo(W * 0.9, H * 0.115);
-  ctx.lineTo(W * 0.9, H * 0.046);
-  ctx.quadraticCurveTo(W * 0.5, H * 0.015, W * 0.1, H * 0.046);
-  ctx.lineTo(W * 0.1, H * 0.115);
-  ctx.stroke();
-
-  // Skillevegg for høyre kanal
-  ctx.beginPath();
-  ctx.moveTo(W * 0.775, H * 0.115);
-  ctx.lineTo(W * 0.775, H * 0.88);
-  ctx.stroke();
-
-  // Fjær i bunn av høyre kanal
-  ctx.strokeStyle = '#f59e0b';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  let springX = W * 0.835;
-  let springTop = H * 0.85;
-  let springBottom = H * 0.92;
-  ctx.moveTo(springX, springBottom);
-  for (let y = springBottom; y > springTop; y -= 10) {
-    ctx.lineTo(springX - 10, y - 5);
-    ctx.lineTo(springX + 10, y - 10);
+  ctx.globalAlpha = 0.06;
+  for (let i = 0; i < 200; i++) {
+    const gx = Math.random() * W;
+    const gy = toY(100) + Math.random() * (H - toY(100));
+    ctx.strokeStyle = '#8fbc6e';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx + (Math.random() - 0.5) * 4, gy - 6 - Math.random() * 8);
+    ctx.stroke();
   }
+  ctx.restore();
+
+  // Vignette overlay
+  const vig = ctx.createRadialGradient(W/2, H*0.45, W*0.2, W/2, H*0.45, W*1.1);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ── draw wooden frame ── */
+function drawFrame() {
+  const frameW = toR(30); // frame width ~15px scaled
+  const insetL = toX(80); // inner edge of left wall (server: 80)
+  const insetR = toX(720); // inner edge of right wall (server: 720)
+
+  ctx.save();
+
+  // Outer frame glow (amber LEDs)
+  ctx.shadowColor = 'rgba(255,170,30,0.6)';
+  ctx.shadowBlur = 18;
+
+  // Left outer edge
+  const gradL = ctx.createLinearGradient(insetL - frameW * 1.8, 0, insetL + 4, 0);
+  gradL.addColorStop(0, '#5c3a1e');
+  gradL.addColorStop(0.3, '#8b5e34');
+  gradL.addColorStop(0.7, '#6d4220');
+  gradL.addColorStop(1, '#4a2a12');
+  ctx.fillStyle = gradL;
+  ctx.fillRect(insetL - frameW * 1.8, toY(30), frameW * 1.8, H - toY(60));
+
+  // Right outer edge (outside plunger lane)
+  const gradR = ctx.createLinearGradient(insetR, 0, insetR + frameW * 1.8, 0);
+  gradR.addColorStop(0, '#4a2a12');
+  gradR.addColorStop(0.3, '#6d4220');
+  gradR.addColorStop(0.7, '#8b5e34');
+  gradR.addColorStop(1, '#5c3a1e');
+  ctx.fillStyle = gradR;
+  ctx.fillRect(insetR, toY(30), frameW * 1.8, H - toY(60));
+
+  // Top arch frame
+  const topY = toY(25);
+  const archGrad = ctx.createLinearGradient(W*0.1, 0, W*0.9, 0);
+  archGrad.addColorStop(0, '#5c3a1e');
+  archGrad.addColorStop(0.5, '#8b5e34');
+  archGrad.addColorStop(1, '#5c3a1e');
+  ctx.fillStyle = archGrad;
+  
+  ctx.beginPath();
+  ctx.moveTo(insetL - frameW * 0.5, topY);
+  ctx.quadraticCurveTo(W/2, topY - frameW * 4, insetR + frameW * 0.5, topY);
+  ctx.lineTo(insetR + frameW * 0.5, topY + frameW * 3);
+  ctx.quadraticCurveTo(W/2, topY + frameW * 2 - frameW * 4, insetL - frameW * 0.5, topY + frameW * 3);
+  ctx.fill();
+
+  // Nordic carving pattern on frame (decorative zigzag dots)
+  ctx.shadowBlur = 0;
+  const dotSpacing = toR(18);
+  ctx.fillStyle = '#ffb732';
+  for (let y = toY(60); y < H - toY(80); y += dotSpacing) {
+    // Left frame dots
+    drawCarvingDot(insetL - frameW * 0.9, y + (Math.sin(y * 0.02) * 3), toR(2.5));
+    // Right frame dots
+    drawCarvingDot(insetR + frameW * 0.9, y + (Math.sin(y * 0.02) * 3), toR(2.5));
+  }
+
+  // Top arch dots
+  for (let angle = Math.PI; angle > 0; angle -= 0.12) {
+    const cx = W/2;
+    const cy = topY + frameW * 1.5;
+    const rx = (insetR - insetL) / 2 + frameW * 0.3;
+    drawCarvingDot(cx + Math.cos(angle) * rx, cy - Math.sin(angle) * frameW * 2.5, toR(2));
+  }
+
+  // Inner wall lines (where the ball bounces)
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = toR(3);
+  ctx.shadowColor = 'rgba(160,120,64,0.5)';
+  ctx.shadowBlur = 6;
+  
+  // Left wall
+  ctx.beginPath();
+  ctx.moveTo(insetL, topY + frameW * 3);
+  ctx.lineTo(insetL, H - toY(80));
+  ctx.stroke();
+
+  // Right wall (inside plunger lane)
+  ctx.beginPath();
+  ctx.moveTo(insetR, topY + frameW * 3);
+  ctx.lineTo(insetR, H - toY(80));
+  ctx.stroke();
+
+  // Plunger lane divider (between lane and playfield)
+  ctx.strokeStyle = '#c4963b';
+  ctx.lineWidth = toR(2);
+  ctx.shadowColor = 'rgba(196,150,59,0.4)';
+  ctx.beginPath();
+  const plungerX = toX(620); // server wall at x=620 for the lane divider
+  ctx.moveTo(plungerX, toY(150));
+  ctx.lineTo(plungerX, H - toY(130));
   ctx.stroke();
 
   ctx.restore();
+}
 
-  // Tegn hindre (bumpers)
-  bumpers.forEach(b => {
-    const bx = b.x / 800 * W;
-    const by = b.y / 1300 * H;
-    const br = b.r / 800 * W;
+function drawCarvingDot(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ── draw plunger lane ── */
+function drawPlunger() {
+  const lx = toX(620); // left edge of plunger lane
+  const rx = toX(720); // right wall
+  const pw = rx - lx;
+
+  ctx.save();
+  
+  // Plunger lane background
+  const laneGrad = ctx.createLinearGradient(lx, 0, rx, 0);
+  laneGrad.addColorStop(0, '#2a2015');
+  laneGrad.addColorStop(1, '#3a2c1a');
+  ctx.fillStyle = laneGrad;
+  ctx.fillRect(lx, toY(140), pw, H - toY(150));
+
+  // Spring / plunger mechanism
+  const springX = (lx + rx) / 2;
+  const springTop = toY(920);
+  const springBot = toY(1100);
+  
+  ctx.strokeStyle = '#b8860b';
+  ctx.lineWidth = toR(3);
+  ctx.shadowColor = 'rgba(184,134,11,0.5)';
+  ctx.shadowBlur = 8;
+  
+  ctx.beginPath();
+  for (let y = springTop; y < springBot; y += toY(12)) {
+    const offset = Math.sin((y - springTop) * 0.4) * toR(6);
+    if (y === springTop) {
+      ctx.moveTo(springX - offset, y);
+    } else {
+      ctx.lineTo(springX - offset, y);
+    }
+    ctx.lineTo(springX + offset, y);
+  }
+  ctx.stroke();
+
+  // Plunger head (wooden peg)
+  ctx.shadowBlur = 0;
+  const headGrad = ctx.createRadialGradient(springX, springBot - toY(10), toR(2), springX, springBot - toY(10), toR(14));
+  headGrad.addColorStop(0, '#c9a45e');
+  headGrad.addColorStop(1, '#8b6914');
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.ellipse(springX, springBot - toY(8), toR(12), toR(6), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ── draw slingshots ── */
+function drawSlingshots() {
+  ctx.save();
+  
+  // Left slingshot (around x=150, y=850-970)
+  const sL = { x: toX(140), y1: toY(850), y2: toY(970), w: toR(16) };
+  drawSlingshot(sL, '#ff6b6b');
+
+  // Right slingshot (around x=630, y=850-970) — inside plunger lane area
+  const sR = { x: toX(600), y1: toY(850), y2: toY(970), w: toR(16) };
+  drawSlingshot(sR, '#ff6b6b');
+
+  ctx.restore();
+}
+
+function drawSlingshot(pos, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = toR(4);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  
+  // Triangular shape
+  const topX = pos.x;
+  const botLeftX = pos.x - pos.w * 0.6;
+  const botRightX = pos.x + pos.w * 0.6;
+  
+  ctx.beginPath();
+  ctx.moveTo(topX, pos.y1);
+  ctx.lineTo(botLeftX, pos.y2);
+  ctx.lineTo(botRightX, pos.y2);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Fill with semi-transparent color
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = color;
+  ctx.fill();
+  
+  ctx.restore();
+}
+
+/* ── draw guide rails ── */
+function drawGuideRails() {
+  ctx.save();
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = toR(3);
+  ctx.shadowColor = 'rgba(160,120,64,0.4)';
+  ctx.shadowBlur = 5;
+
+  // Left guide rail (curves toward center at bottom)
+  ctx.beginPath();
+  ctx.moveTo(toX(90), toY(350));
+  ctx.quadraticCurveTo(toX(100), toY(750), toX(180), toY(1000));
+  ctx.stroke();
+
+  // Right guide rail (in plunger lane)
+  ctx.beginPath();
+  ctx.moveTo(toX(620), toY(350));
+  ctx.lineTo(toX(620), toY(800));
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ── draw bumpers with animal icons ── */
+function drawBumpers() {
+  const animals = ['🐓', '🐔', '🐑', '🐄', '🐖'];
+  
+  bumpers.forEach((b, i) => {
+    const bx = toX(b.x);
+    const by = toY(b.y);
+    const br = toR(b.r);
     
     ctx.save();
-    ctx.shadowColor = b.color || '#e94560';
-    ctx.shadowBlur = 20;
     
-    ctx.fillStyle = b.color || '#e94560';
+    // Hit flash glow
+    if (b.hitFlash > 0) {
+      const flashAlpha = b.hitFlash / 10 * 0.5;
+      ctx.shadowColor = b.color || '#ff6b6b';
+      ctx.shadowBlur = 35 + b.hitFlash * 3;
+      ctx.globalAlpha = 0.4 + (b.hitFlash / 10) * 0.3;
+      
+      ctx.fillStyle = b.color || '#ff6b6b';
+      ctx.beginPath();
+      ctx.arc(bx, by, br + toR(5), 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+    }
+
+    // Bumper body (wooden disc with gradient)
+    const bumperGrad = ctx.createRadialGradient(bx - br*0.3, by - br*0.3, br*0.1, bx, by, br);
+    if (b.hitFlash > 0) {
+      bumperGrad.addColorStop(0, '#ffffff');
+      bumperGrad.addColorStop(0.5, b.color || '#ff6b6b');
+      bumperGrad.addColorStop(1, '#8a3a3a');
+    } else {
+      bumperGrad.addColorStop(0, lighten(b.color || '#ff6b6b', 40));
+      bumperGrad.addColorStop(0.7, b.color || '#ff6b6b');
+      bumperGrad.addColorStop(1, darken(b.color || '#ff6b6b', 30));
+    }
+    
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = (b.color || '#ff6b6b') + '80';
+    
+    // Outer ring
+    ctx.strokeStyle = '#5c3a1e';
+    ctx.lineWidth = toR(3);
     ctx.beginPath();
     ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.stroke();
     
-    if (b.score) {
+    // Fill
+    ctx.fillStyle = bumperGrad;
+    ctx.beginPath();
+    ctx.arc(bx, by, br - toR(2), 0, Math.PI * 2);
+    ctx.fill();
+
+    // Score text
+    if (b.score && b.hitFlash <= 0) {
+      ctx.shadowBlur = 0;
       ctx.fillStyle = '#fff';
-      ctx.font = `bold ${br * 0.5}px sans-serif`;
+      ctx.font = `bold ${toR(br*0.4)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(b.score, bx, by);
+      ctx.fillText(b.score, bx, by - toR(br*0.15));
     }
+
+    // Animal icon (centered)
+    if (b.hitFlash <= 2 && !b.score) {
+      const fontSize = toR(br * 0.7);
+      ctx.font = `${fontSize}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(animals[i % animals.length], bx, by + toR(br*0.1));
+    }
+
     ctx.restore();
   });
+}
 
-  // Tegn venstre flipper
-  const pivotL = { x: 230 / 800 * W, y: 1100 / 1300 * H };
-  const fLen = 110 / 800 * W;
-  const leftAngle = flippers.left ? -0.5 : 0.35;
+/* ── draw flippers ── */
+function drawFlippers() {
+  const pivotLX = toX(230);
+  const pivotLY = toY(1100);
+  const fLen = toR(FLIPPER_LEN);
   
+  // Left flipper
+  const leftAngle = flippers.left ? -0.55 : 0.35;
+  drawFlipper(pivotLX, pivotLY, fLen, leftAngle, '#c0c0c0', '#e8e8e8', true);
+
+  // Right flipper
+  const pivotRX = toX(470);
+  const rightAngle = flippers.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
+  drawFlipper(pivotRX, pivotLY, fLen, rightAngle, '#c0c0c0', '#e8e8e8', false);
+}
+
+function drawFlipper(px, py, length, angle, metalColor, highlightColor, isLeft) {
   ctx.save();
-  ctx.lineWidth = Math.max(8, fLen * 0.15);
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = flippers.left ? '#00ff88' : '#0a8f5c';
-  ctx.shadowColor = '#00ff88';
-  ctx.shadowBlur = flippers.left ? 20 : 5;
   
-  ctx.beginPath();
-  ctx.moveTo(pivotL.x, pivotL.y);
-  ctx.lineTo(pivotL.x + Math.cos(leftAngle) * fLen, pivotL.y + Math.sin(leftAngle) * fLen);
-  ctx.stroke();
-  ctx.restore();
+  // Metallic gradient along flipper
+  const endX = px + Math.cos(angle) * length;
+  const endY = py + Math.sin(angle) * length;
+  
+  const fGrad = ctx.createLinearGradient(
+    px, py - toR(8),
+    px, py + toR(8)
+  );
+  fGrad.addColorStop(0, highlightColor);
+  fGrad.addColorStop(0.3, metalColor);
+  fGrad.addColorStop(0.7, darken(metalColor, 20));
+  fGrad.addColorStop(1, '#888');
 
-  // Tegn høyre flipper
-  const pivotR = { x: 470 / 800 * W, y: 1100 / 1300 * H };
-  const rightAngle = flippers.right ? (Math.PI + 0.5) : (Math.PI - 0.35);
-  
-  ctx.save();
-  ctx.lineWidth = Math.max(8, fLen * 0.15);
+  ctx.strokeStyle = fGrad;
+  ctx.lineWidth = toR(16);
   ctx.lineCap = 'round';
-  ctx.strokeStyle = flippers.right ? '#00ddff' : '#0a6f8f';
-  ctx.shadowColor = '#00ddff';
-  ctx.shadowBlur = flippers.right ? 20 : 5;
   
-  ctx.beginPath();
-  ctx.moveTo(pivotR.x, pivotR.y);
-  ctx.lineTo(pivotR.x + Math.cos(rightAngle) * fLen, pivotR.y + Math.sin(rightAngle) * fLen);
-  ctx.stroke();
-  ctx.restore();
-
-  // Tegn ball
-  if (ball.active) {
-    const bx = ball.x / 800 * W;
-    const by = ball.y / 1300 * H;
-    const br = Math.max(5, (ball.r || 7) / 800 * W);
-    
-    ctx.save();
-    ctx.shadowColor = '#fff';
-    ctx.shadowBlur = 25;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(bx, by, br, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  const isActive = isLeft ? flippers.left : flippers.right;
+  if (isActive) {
+    ctx.shadowColor = '#00ffaa';
+    ctx.shadowBlur = 20;
+  } else {
+    ctx.shadowColor = metalColor + '40';
+    ctx.shadowBlur = 8;
   }
+  
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  // Pivot circle
+  ctx.shadowBlur = 0;
+  const pivotGrad = ctx.createRadialGradient(px - toR(2), py - toR(2), toR(1), px, py, toR(8));
+  pivotGrad.addColorStop(0, '#e0e0e0');
+  pivotGrad.addColorStop(1, '#666');
+  ctx.fillStyle = pivotGrad;
+  ctx.beginPath();
+  ctx.arc(px, py, toR(8), 0, Math.PI * 2);
+  ctx.fill();
+
+  // Rivets on flipper
+  ctx.fillStyle = '#999';
+  const rivetDist = length * 0.6;
+  ctx.beginPath();
+  ctx.arc(px + Math.cos(angle) * rivetDist, py + Math.sin(angle) * rivetDist, toR(2.5), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ── drain zone ── */
+function drawDrain() {
+  const drainY = toY(H - toY(40)); // bottom area
+  
+  ctx.save();
+  
+  // Dark drain channel
+  ctx.fillStyle = '#1a1208';
+  ctx.fillRect(toX(95), drainY, toX(525) - toX(95), H - drainY);
+  
+  // Drain edges with metal
+  ctx.strokeStyle = '#7a6040';
+  ctx.lineWidth = toR(3);
+  ctx.shadowColor = 'rgba(122,96,64,0.5)';
+  ctx.shadowBlur = 8;
+  
+  ctx.beginPath();
+  ctx.moveTo(toX(95), drainY);
+  ctx.lineTo(toX(95), H);
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.moveTo(toX(525), drainY);
+  ctx.lineTo(toX(525), H);
+  ctx.stroke();
+
+  // "DRAIN" text (subtle)
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,200,100,0.25)';
+  ctx.font = `${toR(14)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('DRAIN', (toX(95) + toX(525)) / 2, drainY + toR(20));
+
+  ctx.restore();
+}
+
+/* ── draw ball ── */
+function drawBall() {
+  if (!ball.active && ball.y < toY(1200)) return;
+  
+  const bx = toX(ball.x);
+  const by = toY(ball.y);
+  const br = toR(Math.max(5, (ball.r || 9)));
+  
+  ctx.save();
+  
+  // Ball glow
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur = 25;
+  
+  // Metallic silver ball
+  const ballGrad = ctx.createRadialGradient(bx - br*0.3, by - br*0.3, br*0.05, bx, by, br);
+  ballGrad.addColorStop(0, '#ffffff');
+  ballGrad.addColorStop(0.4, '#e8e8e8');
+  ballGrad.addColorStop(0.8, '#b0b0b0');
+  ballGrad.addColorStop(1, '#707070');
+  
+  ctx.fillStyle = ballGrad;
+  ctx.beginPath();
+  ctx.arc(bx, by, br, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Highlight
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.arc(bx - br*0.25, by - br*0.25, br*0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ── draw particles ── */
+function drawParticles() {
+  if (!particles || !Array.isArray(particles)) return;
+  
+  ctx.save();
+  particles.forEach(p => {
+    const alpha = (p.life / p.maxLife) * 0.8;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(toX(p.x), toY(p.y), toR(p.size || 3) * (p.life / p.maxLife), 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+/* ── color helpers ── */
+function lighten(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.min(255,r+amt)},${Math.min(255,g+amt)},${Math.min(255,b+amt)})`;
+}
+function darken(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.max(0,r-amt)},${Math.max(0,g-amt)},${Math.max(0,b-amt)})`;
+}
+
+/* ── title area ── */
+function drawTitle() {
+  ctx.save();
+  const alpha = 0.12;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#ffcc55';
+  ctx.font = `bold ${toR(36)}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.shadowColor = '#ffaa22';
+  ctx.shadowBlur = 15;
+  ctx.fillText('GÅRDSPENGBALL', W/2, toY(40));
+  
+  ctx.font = `${toR(14)}px sans-serif`;
+  ctx.fillStyle = '#ddd8c8';
+  ctx.fillText('🐓 Gården kaller! 🐑', W/2, toY(75));
+  ctx.restore();
+}
+
+/* ── plunger zone label ── */
+function drawPlungerLabel() {
+  const lx = toX(620);
+  const rx = toX(720);
+  const cy = (toY(920) + toY(1150)) / 2;
+  
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#ffcc55';
+  ctx.font = `bold ${toR(16)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  // Rotate text vertically in plunger lane
+  ctx.save();
+  ctx.translate((lx + rx) / 2, cy);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('SKYV!', 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+
+/* ── main render loop ── */
+function drawGame() {
+  drawBackground();
+  drawFrame();
+  drawTitle();
+  drawGuideRails();
+  drawSlingshots();
+  drawPlunger();
+  drawPlungerLabel();
+  drawBumpers();
+  drawDrain();
+  drawFlippers();
+  drawBall();
+  drawParticles();
 
   requestAnimationFrame(drawGame);
 }
 
-document.getElementById('launch-btn').addEventListener('click', () => {
-  initAudio();
-  socket.emit('ball-launch');
-});
+/* ── ball launch button (visible only when ball not active) ── */
+function addLaunchButton() {
+  const btn = document.createElement('button');
+  btn.id = 'launch-btn';
+  btn.textContent = '🚀 Skyv!';
+  btn.style.cssText = `
+    position: absolute; bottom: 20px; right: 15px; z-index: 20;
+    width: 80px; height: 80px; border-radius: 50%; font-size: 16px;
+    background: radial-gradient(circle, #e94560, #c23152);
+    color: #fff; border: 3px solid #ff6b81; cursor: pointer;
+    box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
+    pointer-events: auto;
+  `;
+  btn.addEventListener('click', () => { initAudio(); socket.emit('ball-launch'); });
+  document.body.appendChild(btn);
+}
 
+document.addEventListener('DOMContentLoaded', addLaunchButton);
 window.addEventListener('click', () => { initAudio(); }, { once: true });
 
 drawGame();
+
+/* ── flipper keys for testing ── */
+const FLIPPER_LEN = 110; // used by drawFlipper reference — but we use server-side state now
 </script>
 </body>
 </html>
