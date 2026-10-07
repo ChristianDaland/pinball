@@ -155,28 +155,32 @@ body {
 const socket = io();
 let playerName = 'Spiller_' + Math.floor(Math.random() * 9000 + 1000);
 
-// Restore name from localStorage for consistency across reloads
 const storedName = localStorage.getItem('pinball-player');
 if (storedName) {
   playerName = storedName;
 }
-
-// Save to localStorage so other tabs/devices can pick it up
 localStorage.setItem('pinball-player', playerName);
-
 document.getElementById('player-name').textContent = playerName;
 
-socket.emit('set-name', playerName);
+// Håndter tilkobling skikkelig
+socket.on('connect', () => {
+  document.getElementById('status').textContent = '✓ Tilkoblet! Trykk på knappene!';
+  document.getElementById('status').style.color = '#4ade80';
+  socket.emit('set-name', playerName);
+  socket.emit('start-game'); // Starter spillet automatisk slik at klienter registreres
+});
+
+socket.on('connect_error', () => {
+  document.getElementById('status').textContent = '⚠ Kunne ikke koble til serveren';
+  document.getElementById('status').style.color = '#e94560';
+});
 
 let flipInterval = null;
 
 function sendFlip(side, active) {
-  // Server expects 'flip-left' or 'flip-right', not 'flip'
   socket.emit(side === 'left' ? 'flip-left' : 'flip-right', active);
-  const btn = document.getElementById(side === 'left' ? 'flip-left' : 'flip-right');
   
   if (active) {
-    // Start vibration feedback
     if (navigator.vibrate) navigator.vibrate(20);
     
     if (!flipInterval) {
@@ -196,7 +200,6 @@ function sendFlip(side, active) {
 const leftBtn = document.getElementById('flip-left');
 const rightBtn = document.getElementById('flip-right');
 
-// Touch events for mobile
 leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sendFlip('left', true); });
 leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); sendFlip('left', false); });
 leftBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); sendFlip('left', false); });
@@ -205,7 +208,6 @@ rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sendFlip('r
 rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); sendFlip('right', false); });
 rightBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); sendFlip('right', false); });
 
-// Mouse events for desktop testing
 leftBtn.addEventListener('mousedown', () => sendFlip('left', true));
 leftBtn.addEventListener('mouseup', () => sendFlip('left', false));
 leftBtn.addEventListener('mouseleave', () => sendFlip('left', false));
@@ -214,7 +216,6 @@ rightBtn.addEventListener('mousedown', () => sendFlip('right', true));
 rightBtn.addEventListener('mouseup', () => sendFlip('right', false));
 rightBtn.addEventListener('mouseleave', () => sendFlip('right', false));
 
-// Keyboard events for desktop testing
 document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', true);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', true);
@@ -223,16 +224,6 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', false);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', false);
-});
-
-socket.on('connected', () => {
-  document.getElementById('status').textContent = '✓ Tilkoblet! Trykk på knappene!';
-  document.getElementById('status').style.color = '#4ade80';
-});
-
-socket.on('error', (msg) => {
-  document.getElementById('status').textContent = '⚠ ' + msg;
-  document.getElementById('status').style.color = '#e94560';
 });
 </script>
 </body>
