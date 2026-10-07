@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8">
+<title>⚡ Pinball Spill</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #050510; }
+canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const socket = io();
+let players = {};
+let scores = {};
+let ball = { x: 0, y: 0, vx: 0, vy: 0, active: false };
+let bumpers = [];
+let flippers = { left: false, right: false };
+let slingshots = [];
+let walls = [];
+let scoreZones = [];
+let particles = [];
+let levels = [];
+let currentLevel = 1;
+let messageText = '';
+let messageTimer = 0;
+
+// Audio context for sound effects
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function playSound(freq, duration, type = 'square', volume = 0.15) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+// Sound effect library
+const SOUNDS = {
+  bumper: () => { playSound(880, 0.15, 'square', 0.2); setTimeout(() => playSound(660, 0.1, 'square', 0.15), 50); },
+  wall: () => playSound(220, 0.08, 'triangle', 0.1),
+  flipper: () => playSound(330, 0.05, 'sawtooth', 0.1),
+  score: () => { playSound(523, 0.1, 'sine', 0.15); setTimeout(() => playSound(659, 0.1, 'sine', 0.15), 80); setTimeout(() => playSound(784, 0.15, 'sine', 0.2), 160); },
+  bonus: () => { [0,100,200,300].forEach((d,i) => setTimeout(() => playSound([523,659,784,1047][i], 0.12, 'sine', 0.2), d)); },
+  drain: () => { playSound(220, 0.3, 'sawtooth', 0.1); setTimeout(() => playSound(165, 0.4, 'sawtooth', 0.08), 150); },
+  levelup: () => { [0,150,300,450].forEach((d,i) => setTimeout(() => playSound([440,550,660,880][i], 0.2, 'square', 0.15), d)); },
+};
+
+// Game objects positions (relative to canvas)
+let gameObjects = {};
+
+socket.on('state', (data) => {
+  if (data.players) players = data.players;
+  if (data.scores) scores = data.scores;
+  if (data.ball) ball = data.ball;
+  if (data.bumpers) bumpers = data.bumpers;
+  if (data.flippers !== undefined) flippers = data.flippers;
+  if (data.slingshots) slingshots = data.slingshots;
+  if (data.walls) walls = data.walls;
+  if (data.scoreZones) scoreZones = data.scoreZones;
+  if (data.message) { messageText = data.message; messageTimer = 120; }
+  if (data.level !== undefined) currentLevel = data.level;
+  initAudio();
+});
+
+socket.on('particle', (p) => particles.push(p));
+
+function drawNeonText(text, x, y, size, color = '#e94560', glow = true) {
+  ctx.save();
+  ctx.font = `bold ${size}px 'Segoe UI', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  if (glow) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.shadowBlur = 10;
+    ctx.fillText(text, x, y);
+  }
+  
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function drawGame() {
+  // Background with subtle gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a0a1a');
+  grad.addColorStop(0.5, '#0d0d24');
+  grad.addColorStop(1, '#080816');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid lines for retro feel
+  ctx.strokeStyle = 'rgba(233, 69, 96, 0.05)';
+  ctx.lineWidth = 1;
+  const gridSize = 40;
+  for (let x = 0; x < W; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  // Draw walls
+  walls.forEach(w => {
+    const wx = w.x * W / 100;
+    const wy = w.y * H / 100;
+    const ww = w.w * W / 100;
+    const wh = w.h * H / 100;
+    
+    ctx.save();
+    ctx.strokeStyle = '#2a2a4a';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#e94560';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = 'rgba(42, 42, 74, 0.5)';
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.strokeRect(wx, wy, ww, wh);
+    ctx.restore();
+  });
+
+  // Draw bumpers
+  bumpers.forEach(b => {
+    const bx = b.x * W / 100;
+    const by = b.y * H / 100;
+    const br = b.r * W / 100;
+    
+    ctx.save();
+    
+    // Glow effect
+    ctx.shadowColor = '#e94560';
+    ctx.shadowBlur = 30;
+    
+    // Bumper circle
+    const bumperGrad = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+    bumperGrad.addColorStop(0, '#ff6b81');
+    bumperGrad.addColorStop(0.7, '#e94560');
+    bumperGrad.addColorStop(1, '#c23152');
+    
+    ctx.fillStyle = bumperGrad;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Inner ring
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, br * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // Score text
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${br * 0.5}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.score, bx, by);
+    
+    ctx.restore();
+  });
+
+  // Draw slingshots
+  slingshots.forEach(s => {
+    const sx = s.x * W / 100;
+    const sy = s.y * H / 100;
+    
+    ctx.save();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 12;
+    
+    if (s.triangular) {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - s.h * H / 100);
+      ctx.lineTo(sx + s.w * W / 100, sy + s.h * H / 100);
+      ctx.lineTo(sx - s.w * W / 100, sy + s.h * H / 100);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.1)';
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + s.w * W / 100, sy);
+      ctx.lineTo(sx + s.w * W / 100 * 0.5, sy - s.h * H / 100);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.1)';
+      ctx.fill();
+      ctx.stroke();
+    }
+    
+    ctx.restore();
+  });
+
+  // Draw flippers
+  const flipY = 85 * H / 100;
+  const flipLength = 12 * W / 100;
+  const pivotX_left = 35 * W / 100;
+  const pivotX_right = 65 * W / 100;
+  
+  // Left flipper
+  ctx.save();
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = '#00ff88';
+  ctx.shadowBlur = flippers.left ? 25 : 10;
+  
+  const leftAngle = flippers.left ? -0.6 : 0.3;
+  ctx.beginPath();
+  ctx.moveTo(pivotX_left, flipY);
+  ctx.lineTo(pivotX_left + Math.cos(leftAngle) * flipLength, flipY + Math.sin(leftAngle) * flipLength);
+  ctx.stroke();
+  ctx.restore();
+  
+  // Right flipper
+  ctx.save();
+  ctx.strokeStyle = '#00ddff';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = '#00ddff';
+  ctx.shadowBlur = flippers.right ? 25 : 10;
+  
+  const rightAngle = flippers.right ? Math.PI + 0.6 : Math.PI - 0.3;
+  ctx.beginPath();
+  ctx.moveTo(pivotX_right, flipY);
+  ctx.lineTo(pivotX_right + Math.cos(rightAngle) * flipLength, flipY + Math.sin(rightAngle) * flipLength);
+  ctx.stroke();
+  ctx.restore();
+
+  // Draw ball
+  if (ball.active) {
+    const bx = ball.x / 100 * W;
+    const by = ball.y / 100 * H;
+    
+    ctx.save();
+    
+    // Ball shadow/glow
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 30;
+    
+    // Ball gradient
+    const ballGrad = ctx.createRadialGradient(bx - by*0.01, by - by*0.01, 0, bx, by, ball.r * W / 100);
+    ballGrad.addColorStop(0, '#ffffff');
+    ballGrad.addColorStop(0.5, '#e8e8ff');
+    ballGrad.addColorStop(1, '#aaaacc');
+    
+    ctx.fillStyle = ballGrad;
+    ctx.beginPath();
+    ctx.arc(bx, by, ball.r * W / 100, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.restore();
+  }
+
+  // Draw particles
+  particles.forEach(p => {
+    const px = p.x / 100 * W;
+    const py = p.y / 100 * H;
+    const age = p.life / p.maxLife;
+    
+    ctx.save();
+    ctx.globalAlpha = age;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 15;
+    
+    ctx.beginPath();
+    ctx.arc(px, py, p.size * age, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.restore();
+  });
+
+  // Score display on game screen
+  ctx.save();
+  
+  // Player scores at top
+  const scoreY = 30;
+  let scoreX = W / 2;
+  
+  Object.entries(scores).forEach(([name, score]) => {
+    drawNeonText(`${name}: ${score}`, scoreX, scoreY, 28, '#4ade80', false);
+    scoreX -= 150;
+  });
+  
+  // Current level
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = '#f59e0b';
+  ctx.textAlign = 'left';
+  ctx.shadowColor = '#f59e0b';
+  ctx.shadowBlur = 10;
+  ctx.fillText(`Nivå: ${currentLevel}`, 20, H - 20);
+  
+  // Player count
+  ctx.fillStyle = '#888';
+  ctx.textAlign = 'right';
+  ctx.shadowBlur = 0;
+  ctx.fillText(`Spillere: ${Object.keys(players).length}`, W - 20, H - 20);
+  
+  ctx.restore();
+
+  // Message overlay
+  if (messageTimer > 0) {
+    messageTimer--;
+    const alpha = Math.min(1, messageTimer / 30);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    drawNeonText(messageText, W/2, H/2, 64, '#f59e0b', true);
+    ctx.restore();
+    
+    if (messageTimer === 0) {
+      socket.emit('message-dismissed');
+    }
+  }
+
+  requestAnimationFrame(drawGame);
+}
+
+drawGame();
+
+// Init audio on first click
+document.addEventListener('click', initAudio, { once: true });
+</script>
+</body>
+</html>

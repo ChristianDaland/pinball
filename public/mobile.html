@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>⚡ Pinball Mobil</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a12;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.player-bar {
+  width: 100%;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  border-bottom: 2px solid #e94560;
+  text-align: center;
+  font-size: 18px;
+  color: #e94560;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(233, 69, 96, 0.5);
+  flex-shrink: 0;
+}
+
+.player-bar span { color: #fff; }
+
+.buttons-container {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  justify-content: space-evenly;
+  align-items: center;
+  padding: 16px;
+  gap: 24px;
+}
+
+.flipper-btn {
+  width: 48%;
+  height: 75%;
+  border: none;
+  border-radius: 24px;
+  font-size: 32px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.1s, box-shadow 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.flipper-btn::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(255,255,255,0.1);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.4s, height 0.4s;
+}
+
+.flipper-btn:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+#flip-left {
+  background: linear-gradient(135deg, #e94560, #c23152);
+  box-shadow: 0 8px 32px rgba(233, 69, 96, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+
+#flip-left:active {
+  background: linear-gradient(135deg, #ff6b81, #e94560);
+  box-shadow: 0 4px 16px rgba(233, 69, 96, 0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+  transform: scale(0.97);
+}
+
+#flip-right {
+  background: linear-gradient(135deg, #0f3460, #1a5276);
+  box-shadow: 0 8px 32px rgba(15, 52, 96, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+
+#flip-right:active {
+  background: linear-gradient(135deg, #1a7a9c, #0f3460);
+  box-shadow: 0 4px 16px rgba(15, 52, 96, 0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+  transform: scale(0.97);
+}
+
+.flipper-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.status-msg {
+  text-align: center;
+  padding: 12px;
+  font-size: 16px;
+  color: #aaa;
+  background: #0a0a12;
+}
+
+@media (orientation: portrait) {
+  .buttons-container {
+    flex-direction: column;
+    justify-content: center;
+  }
+  .flipper-btn {
+    width: 80%;
+    height: 35%;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="player-bar">Spiller: <span id="player-name">...</span></div>
+
+<div class="buttons-container">
+  <button class="flipper-btn" id="flip-left">
+    <span class="flipper-icon">◄</span>
+    Venstre
+  </button>
+  <button class="flipper-btn" id="flip-right">
+    <span class="flipper-icon">►</span>
+    Høyre
+  </button>
+</div>
+
+<div class="status-msg" id="status">Kobler til...</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let playerName = 'Spiller_' + Math.floor(Math.random() * 9000 + 1000);
+document.getElementById('player-name').textContent = playerName;
+
+// Store name in localStorage for consistency
+const storedName = localStorage.getItem('pinball-player');
+if (storedName) {
+  playerName = storedName;
+  document.getElementById('player-name').textContent = playerName;
+}
+
+socket.emit('set-name', playerName);
+
+let flipInterval = null;
+
+function sendFlip(side, active) {
+  socket.emit('flip', { player: playerName, side: side, active: active });
+  const btn = document.getElementById(side === 'left' ? 'flip-left' : 'flip-right');
+  
+  if (active) {
+    // Start vibration feedback
+    if (navigator.vibrate) navigator.vibrate(20);
+    
+    if (!flipInterval) {
+      flipInterval = setInterval(() => {
+        socket.emit('flip', { player: playerName, side: side, active: true });
+        if (navigator.vibrate) navigator.vibrate(10);
+      }, 80);
+    }
+  } else {
+    if (flipInterval) {
+      clearInterval(flipInterval);
+      flipInterval = null;
+    }
+  }
+}
+
+const leftBtn = document.getElementById('flip-left');
+const rightBtn = document.getElementById('flip-right');
+
+// Touch events for mobile
+leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sendFlip('left', true); });
+leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); sendFlip('left', false); });
+leftBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); sendFlip('left', false); });
+
+rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sendFlip('right', true); });
+rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); sendFlip('right', false); });
+rightBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); sendFlip('right', false); });
+
+// Mouse events for desktop testing
+leftBtn.addEventListener('mousedown', () => sendFlip('left', true));
+leftBtn.addEventListener('mouseup', () => sendFlip('left', false));
+leftBtn.addEventListener('mouseleave', () => sendFlip('left', false));
+
+rightBtn.addEventListener('mousedown', () => sendFlip('right', true));
+rightBtn.addEventListener('mouseup', () => sendFlip('right', false));
+rightBtn.addEventListener('mouseleave', () => sendFlip('right', false));
+
+// Keyboard events for desktop testing
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', true);
+  if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', true);
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', false);
+  if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', false);
+});
+
+socket.on('connected', () => {
+  document.getElementById('status').textContent = '✓ Tilkoblet! Trykk på knappene!';
+  document.getElementById('status').style.color = '#4ade80';
+});
+
+socket.on('error', (msg) => {
+  document.getElementById('status').textContent = '⚠ ' + msg;
+  document.getElementById('status').style.color = '#e94560';
+});
+</script>
+</body>
+</html>
