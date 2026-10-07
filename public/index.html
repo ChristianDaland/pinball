@@ -92,16 +92,39 @@ function drawGame() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Tegn vegger / topp-bue
+  // Tegn baner og vegger
   ctx.save();
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 4;
   ctx.shadowColor = '#e94560';
   ctx.shadowBlur = 10;
+  
+  // Topp-bue
   ctx.beginPath();
-  ctx.moveTo(W * 0.925, H * 0.06);
-  ctx.quadraticCurveTo(W * 0.5, H * 0.01, W * 0.075, H * 0.06);
+  ctx.moveTo(W * 0.9, H * 0.09);
+  ctx.quadraticCurveTo(W * 0.5, H * 0.02, W * 0.1, H * 0.09);
   ctx.stroke();
+
+  // Skillevegg for høyre kanal (Plunger lane)
+  ctx.beginPath();
+  ctx.moveTo(W * 0.9, H * 0.09);
+  ctx.lineTo(W * 0.9, H * 0.75);
+  ctx.stroke();
+
+  // Tegn en visuell fjær i bunnen av høyre kanal
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  let springX = W * 0.95;
+  let springTop = H * 0.85;
+  let springBottom = H * 0.92;
+  ctx.moveTo(springX, springBottom);
+  for (let y = springBottom; y > springTop; y -= 10) {
+    ctx.lineTo(springX - 10, y - 5);
+    ctx.lineTo(springX + 10, y - 10);
+  }
+  ctx.stroke();
+
   ctx.restore();
 
   // Tegn bumpers

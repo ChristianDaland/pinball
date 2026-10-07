@@ -15,39 +15,38 @@ const BALL_R = 7;
 
 function makeWalls() {
     return [
-        // Topp-bue som tvinger ballen rundt fra høyre til venstre
-        { x1: 740, y1: 80,  x2: 600, y2: 30 },
-        { x1: 600, y1: 30,  x2: 400, y2: 20 },
-        { x1: 400, y1: 20,  x2: 200, y2: 30 },
-        { x1: 200, y1: 30,  x2: 60,  y2: 80 },
-        // Yttervegger
-        { x1: 60,  y1: 80,  x2: 10,  y2: 300 },
-        { x1: 10,  y1: 300, x2: 60,  y2: 980 },
-        { x1: 740, y1: 80,  x2: 790, y2: 300 },
-        { x1: 790, y1: 300, x2: 740, y2: 980 },
-        // Plunger-lane skillevegg til høyre
-        { x1: 740, y1: 80,  x2: 740, y2: 1150 },
-        // Flipper guider i bunn
-        { x1: 60,  y1: 980, x2: 230, y2: 1100 },
-        { x1: 740, y1: 980, x2: 570, y2: 1100 },
+        // Topp-bue som leder ballen fra høyre kanal over til venstre side av spillfeltet
+        { x1: 720, y1: 120, x2: 600, y2: 40 },
+        { x1: 600, y1: 40,  x2: 400, y2: 25 },
+        { x1: 400, y1: 25,  x2: 200, y2: 40 },
+        { x1: 200, y1: 40,  x2: 80,  y2: 120 },
+        
+        // Yttervegger på spillfeltet
+        { x1: 80,  y1: 120, x2: 20,  y2: 400 },
+        { x1: 20,  y1: 400, x2: 80,  y2: 980 },
+        { x1: 720, y1: 120, x2: 720, y2: 980 }, // Skillevegg for høyre kanal (Plunger lane)
+        
+        // Flipper-guider i bunn
+        { x1: 80,  y1: 980, x2: 230, y2: 1100 },
+        { x1: 720, y1: 980, x2: 570, y2: 1100 },
     ];
 }
 
 const bumpers = [
-    { x: 300, y: 350, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
-    { x: 500, y: 350, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
-    { x: 400, y: 500, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
+    { x: 300, y: 380, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
+    { x: 500, y: 380, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
+    { x: 400, y: 520, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
 ];
 
 const slingshots = [
     { x1: 140, y1: 750, x2: 90, y2: 850, x3: 140, y3: 930, score: 50 },
-    { x1: 660, y1: 750, x2: 710, y2: 850, x3: 660, y3: 930, score: 50 },
+    { x1: 640, y1: 750, x2: 690, y2: 850, x3: 640, y3: 930, score: 50 },
 ];
 
 let players = {};
 let scores = {};
-// Starter ballen i plunger-lanen nede til høyre
-let ball = { x: 770, y: 1100, vx: 0, vy: 0, r: BALL_R, active: true };
+// Starter i bunnen av høyre kanal (fjæra)
+let ball = { x: 760, y: 1150, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
 let highScores = [];
@@ -87,12 +86,12 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { flipStates.left = pressed || false; });
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
-    // Skyter ballen oppover langs høyre side (plunger lane)
+    // Plunger / Fjærskyting: Skyter ballen oppover i høyre kanal
     socket.on('ball-launch', () => {
-        ball.x = 770;
-        ball.y = 1100;
+        ball.x = 760;
+        ball.y = 1150;
         ball.vx = 0;
-        ball.vy = -22; // Kraftig skyv oppover
+        ball.vy = -26; // Kraftig fjær-skyv oppover i kanalen
         ball.active = true;
         io.emit('state', buildGameState());
     });
@@ -111,8 +110,8 @@ io.on('connection', (socket) => {
 });
 
 function resetBall() {
-    ball.x = 770;
-    ball.y = 1100;
+    ball.x = 760;
+    ball.y = 1150;
     ball.vx = 0;
     ball.vy = 0;
     ball.active = true;
@@ -144,8 +143,8 @@ setInterval(() => {
         { x1: fR.x1, y1: fR.y1, x2: fR.x2, y2: fR.y2 }
     ];
 
-    // Ikke bruk tyngdekraft hvis ballen skytes oppover i plunger-lanen (høyre kanal x > 740)
-    if (!(ball.x > 740 && ball.vy < 0)) {
+    // Ikke påvirk av tyngdekraften når ballen skytes oppover i høyre kanal (x > 720)
+    if (!(ball.x > 720 && ball.vy < 0)) {
         ball.vy += GRAVITY;
     }
 
@@ -179,6 +178,7 @@ setInterval(() => {
         }
     }
 
+    // Om ballen faller i bunn (under flipperne)
     if (ball.y > H + 50) {
         resetBall();
     }
