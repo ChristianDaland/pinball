@@ -32,11 +32,11 @@ const ctx = canvas.getContext('2d');
 let W, H;
 
 function resize() {
-  const ratio = 10 / 16;
+  const ratio = 800 / 1300;
   const winRatio = window.innerWidth / window.innerHeight;
   
   if (winRatio > ratio) {
-    canvas.height = Math.min(window.innerHeight, 800);
+    canvas.height = Math.min(window.innerHeight, 900);
     canvas.width = canvas.height * ratio;
   } else {
     canvas.width = window.innerWidth;
@@ -52,13 +52,9 @@ const socket = io();
 
 let players = {};
 let scores = {};
-let ball = { x: 50, y: 40, radius: 6, r: 6, active: false };
+let ball = { x: 50, y: 40, r: 7, active: false };
 let bumpers = [];
-let slingshots = [];
-let walls = [];
 let flippers = { left: false, right: false };
-let particles = [];
-let currentLevel = 1;
 
 socket.on('state', (data) => {
   if (data.players && Array.isArray(data.players)) {
@@ -68,8 +64,6 @@ socket.on('state', (data) => {
   if (data.scores) scores = data.scores;
   if (data.ball) ball = data.ball;
   bumpers = data.bumpers || [];
-  slingshots = data.slingshots || [];
-  walls = data.walls || [];
   flippers = data.flippers || { left: false, right: false };
   updateUI();
 });
@@ -123,11 +117,46 @@ function drawGame() {
     ctx.restore();
   });
 
+  // Tegn venstre flipper
+  const pivotL = { x: 230 / 800 * W, y: 1100 / 1300 * H };
+  const fLen = 110 / 800 * W;
+  const leftAngle = flippers.left ? -0.4 : 0.35;
+  
+  ctx.save();
+  ctx.lineWidth = Math.max(8, fLen * 0.15);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = flippers.left ? '#00ff88' : '#0a8f5c';
+  ctx.shadowColor = '#00ff88';
+  ctx.shadowBlur = flippers.left ? 20 : 5;
+  
+  ctx.beginPath();
+  ctx.moveTo(pivotL.x, pivotL.y);
+  ctx.lineTo(pivotL.x + Math.cos(leftAngle) * fLen, pivotL.y + Math.sin(leftAngle) * fLen);
+  ctx.stroke();
+  ctx.restore();
+
+  // Tegn høyre flipper
+  const pivotR = { x: 570 / 800 * W, y: 1100 / 1300 * H };
+  const rightAngle = flippers.right ? (Math.PI + 0.4) : (Math.PI - 0.35);
+  
+  ctx.save();
+  ctx.lineWidth = Math.max(8, fLen * 0.15);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = flippers.right ? '#00ddff' : '#0a6f8f';
+  ctx.shadowColor = '#00ddff';
+  ctx.shadowBlur = flippers.right ? 20 : 5;
+  
+  ctx.beginPath();
+  ctx.moveTo(pivotR.x, pivotR.y);
+  ctx.lineTo(pivotR.x + Math.cos(rightAngle) * fLen, pivotR.y + Math.sin(rightAngle) * fLen);
+  ctx.stroke();
+  ctx.restore();
+
   // Tegn ball
   if (ball.active) {
     const bx = ball.x / 800 * W;
     const by = ball.y / 1300 * H;
-    const br = Math.max(4, (ball.radius || ball.r || 6) / 800 * W);
+    const br = Math.max(5, (ball.r || 7) / 800 * W);
     
     ctx.save();
     ctx.shadowColor = '#fff';

@@ -9,8 +9,7 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ================= GAME AREA (800x900 virtual) =================
-const W = 800, H = 900;
+const W = 800, H = 1300;
 const GRAVITY = 0.12;
 const BALL_R = 7;
 
@@ -20,58 +19,54 @@ function makeWalls() {
         { x1: 10, y1: 30,   x2: 40, y2: 200 },
         { x1: 40, y1: 200,  x2: 55, y2: 280 },
         { x1: 55, y1: 350,  x2: 100, y2: 430 },
-        { x1: 120, y1: 680, x2: 260, y2: 780 },
-        { x1: 680, y1: 680, x2: 560, y2: 780 },
+        { x1: 120, y1: 980, x2: 230, y2: 1100 },
+        { x1: 680, y1: 980, x2: 570, y2: 1100 },
         { x1: 745, y1: 350, x2: 700, y2: 430 },
         { x1: 760, y1: 280, x2: 760, y2: 200 },
         { x1: 760, y1: 200,  x2: 790, y2: 30 },
-        { x1: 740, y1: 50,   x2: 740, y2: 850 },
-        { x1: 740, y1: 0,    x2: 800, y2: 0 },
-        { x1: 60, y1: 650,    x2: 150, y2: 680 },
-        { x1: 740, y1: 650,   x2: 650, y2: 680 },
+        { x1: 740, y1: 50,   x2: 740, y2: 1250 },
     ];
 }
 
 const bumpers = [
-    { x: 300, y: 180, r: 28, score: 50, color: '#ff6b6b', hitFlash: 0 },
-    { x: 500, y: 180, r: 28, score: 50, color: '#4ecdc4', hitFlash: 0 },
-    { x: 400, y: 300, r: 22, score: 100, color: '#ffe66d', hitFlash: 0 },
+    { x: 300, y: 300, r: 35, score: 50, color: '#ff6b6b', hitFlash: 0 },
+    { x: 500, y: 300, r: 35, score: 50, color: '#4ecdc4', hitFlash: 0 },
+    { x: 400, y: 450, r: 30, score: 100, color: '#ffe66d', hitFlash: 0 },
 ];
 
 const slingshots = [
-    { x1: 140, y1: 500, x2: 90, y2: 580, x3: 140, y3: 640, score: 50 },
-    { x1: 660, y1: 500, x2: 710, y2: 580, x3: 660, y3: 640, score: 50 },
+    { x1: 140, y1: 700, x2: 90, y2: 800, x3: 140, y3: 880, score: 50 },
+    { x1: 660, y1: 700, x2: 710, y2: 800, x3: 660, y3: 880, score: 50 },
 ];
 
 let players = {};
 let scores = {};
-let ball = { x: 760, y: 100, vx: 0, vy: 0, r: BALL_R, active: true, plunger: 0 };
+let ball = { x: 760, y: 100, vx: 0, vy: 0, r: BALL_R, active: true };
 let flipStates = { left: false, right: false };
 let gameStarted = true;
 let highScores = [];
 
-const FLIPPER_LEN = 90;
-const FLIPPER_SPEED = 0.25;
-let flipLeftAngle = 0.4;
-let flipRightAngle = Math.PI - 0.4;
-let flipLeftTarget = flipLeftAngle;
-let flipRightTarget = flipRightAngle;
+const FLIPPER_LEN = 110;
+let flipLeftAngle = 0.35;
+let flipRightAngle = Math.PI - 0.35;
 
 function getFlipLeftEnd() {
-    const px = 260, py = 780;
+    const px = 230, py = 1100;
+    const angle = flipStates.left ? -0.4 : 0.35;
     return {
         x1: px, y1: py,
-        x2: px + Math.cos(flipLeftAngle) * FLIPPER_LEN,
-        y2: py + Math.sin(flipLeftAngle) * FLIPPER_LEN
+        x2: px + Math.cos(angle) * FLIPPER_LEN,
+        y2: py + Math.sin(angle) * FLIPPER_LEN
     };
 }
 
 function getFlipRightEnd() {
-    const px = 540, py = 780;
+    const px = 570, py = 1100;
+    const angle = flipStates.right ? (Math.PI + 0.4) : (Math.PI - 0.35);
     return {
         x1: px, y1: py,
-        x2: px + Math.cos(flipRightAngle) * FLIPPER_LEN,
-        y2: py + Math.sin(flipRightAngle) * FLIPPER_LEN
+        x2: px + Math.cos(angle) * FLIPPER_LEN,
+        y2: px + Math.sin(angle) * FLIPPER_LEN
     };
 }
 
@@ -81,8 +76,6 @@ io.on('connection', (socket) => {
     console.log(`Klient koblet til: ${socket.id}`);
     
     socket.on('set-name', (name) => {
-        // Ignorer om navnet kommer fra hovedskjermen (index.html) hvis den sender tomme/ukorrekte verdier, 
-        // eller registrer kun ekte spillere. Her knytter vi det til socket.id.
         if (!name) return;
         players[socket.id] = { name, joinedAt: Date.now() };
         if (scores[socket.id] === undefined) scores[socket.id] = 0;
@@ -93,14 +86,6 @@ io.on('connection', (socket) => {
     socket.on('flip-right', (pressed) => { flipStates.right = pressed || false; });
 
     socket.on('ball-launch', () => {
-        ball.active = true;
-        ball.x = 760 + Math.random() * 10;
-        ball.y = 80;
-        io.emit('state', buildGameState());
-    });
-
-    socket.on('start-game', () => {
-        gameStarted = true;
         resetBall();
         io.emit('state', buildGameState());
     });
@@ -120,9 +105,9 @@ io.on('connection', (socket) => {
 
 function resetBall() {
     ball.x = 760 + Math.random() * 20;
-    ball.y = 80;
-    ball.vx = (Math.random() - 0.5) * 3;
-    ball.vy = 1;
+    ball.y = 100;
+    ball.vx = -2 - Math.random() * 2;
+    ball.vy = 2;
     ball.active = true;
 }
 
@@ -130,24 +115,18 @@ function addParticles(x, y, color, count) {
     for (let i = 0; i < count; i++) {
         particles.push({
             x, y,
-            vx: (Math.random() - 0.5) * 6,
-            vy: (Math.random() - 0.5) * 6,
-            life: 20 + Math.random() * 15,
-            maxLife: 35,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8,
+            life: 25,
+            maxLife: 25,
             color: color || '#e94560',
-            size: 2 + Math.random() * 4
+            size: 3 + Math.random() * 3
         });
     }
 }
 
 setInterval(() => {
     if (!gameStarted || !ball.active) return;
-
-    flipLeftTarget = flipStates.left ? -0.5 : 0.4;
-    flipRightTarget = flipStates.right ? (Math.PI + 0.5) : (Math.PI - 0.4);
-
-    flipLeftAngle += (flipLeftTarget - flipLeftAngle) * FLIPPER_SPEED * 3;
-    flipRightAngle += (flipRightTarget - flipRightAngle) * FLIPPER_SPEED * 3;
 
     const walls = makeWalls();
     const fL = getFlipLeftEnd();
@@ -163,7 +142,7 @@ setInterval(() => {
     ball.y += ball.vy;
 
     for (const w of allSegments) {
-        collideBallSegment(w);
+        collideBallSegment(w, (w === fL || w === fR));
     }
 
     for (const b of bumpers) {
@@ -174,15 +153,14 @@ setInterval(() => {
         if (dist < b.r + ball.r) {
             const nx = dx / dist;
             const ny = dy / dist;
-            ball.x = b.x + nx * (b.r + ball.r + 1);
-            ball.y = b.y + ny * (b.r + ball.r + 1);
+            ball.x = b.x + nx * (b.r + ball.r + 2);
+            ball.y = b.y + ny * (b.r + ball.r + 2);
             const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-            ball.vx = nx * speed * 0.9 + nx * 5;
-            ball.vy = ny * speed * 0.9 + ny * 5;
+            ball.vx = nx * speed * 0.9 + nx * 6;
+            ball.vy = ny * speed * 0.9 + ny * 6;
             b.hitFlash = 10;
             addParticles(b.x, b.y, b.color, 12);
             
-            // Gi poeng til første aktive spiller hvis noen finnes
             const playerIds = Object.keys(scores);
             if (playerIds.length > 0) {
                 scores[playerIds[0]] = (scores[playerIds[0]] || 0) + b.score;
@@ -190,14 +168,14 @@ setInterval(() => {
         }
     }
 
-    if (ball.y > H + 20) {
+    if (ball.y > H + 50) {
         resetBall();
     }
 
     io.emit('state', buildGameState());
 }, 1000 / 60);
 
-function collideBallSegment(w) {
+function collideBallSegment(w, isFlipper) {
     const dx = w.x2 - w.x1;
     const dy = w.y2 - w.y1;
     const lenSq = dx * dx + dy * dy;
@@ -217,8 +195,8 @@ function collideBallSegment(w) {
         const nx = distX / dist;
         const ny = distY / dist;
 
-        ball.x = closestX + nx * (ball.r + 0.5);
-        ball.y = closestY + ny * (ball.r + 0.5);
+        ball.x = closestX + nx * (ball.r + 1);
+        ball.y = closestY + ny * (ball.r + 1);
 
         const dot = ball.vx * nx + ball.vy * ny;
         ball.vx -= 2 * dot * nx;
@@ -226,6 +204,14 @@ function collideBallSegment(w) {
 
         ball.vx *= 0.85;
         ball.vy *= 0.85;
+
+        if (isFlipper) {
+            const flippingUp = (w.x1 < 400 && flipStates.left) || (w.x1 > 400 && flipStates.right);
+            if (flippingUp) {
+                ball.vy -= 12; // Gir kraft oppover når flipperen slår opp!
+                ball.vx += (Math.random() - 0.5) * 6;
+            }
+        }
     }
 }
 
