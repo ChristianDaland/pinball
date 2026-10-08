@@ -19,19 +19,61 @@ const FLIP_DOWN_SPEED = 0.12;
 const FLIPPER_BOUNCE = 0.3;
 
 const BUMPER_KICK = 4;
+const SLING_KICK = 6;
+const SLING_SCORE = 10;
+
+// Brettet er speilsymmetrisk om x = 350 (midt mellom venstre vegg og kanalen)
+const MID_X = 350;
+const mirror = (p) => ({ x: 2 * MID_X - p.x, y: p.y });
+
+// Buet tak: halvsirkel over hele brettet, også over kanalen, så ballen glir langs buen og inn på brettet
+const ARC = { cx: 400, cy: 345, r: 320, segments: 32 };
 
 // Vegger som linjestykker. Klienten tegner de samme veggene, så det du ser er det ballen treffer.
+// kind: 'wood' = trevegg, 'rail' = metallskinne
 const walls = [
-    { x1: 80, y1: 150, x2: 80, y2: 880 },       // venstre vegg
-    { x1: 720, y1: 150, x2: 720, y2: 1300 },    // høyre vegg (ytterst i kanalen)
-    { x1: 210, y1: 25, x2: 590, y2: 25 },       // tak
-    { x1: 80, y1: 150, x2: 210, y2: 25 },       // skrått hjørne oppe til venstre
-    { x1: 590, y1: 25, x2: 720, y2: 150 },      // skrått hjørne oppe til høyre (sender ballen ut av kanalen)
-    { x1: LANE_DIVIDER_X, y1: 260, x2: LANE_DIVIDER_X, y2: 1300 }, // skillevegg mot kanalen
-    // Ledeskinner ned mot flipperne. De ender i tangenten til flipper-pivoten,
-    // så ballen ruller glatt over på flipperen i stedet for å bli liggende i en lomme.
-    { x1: 80, y1: 870, x2: 236.7, y2: 1095.6 },
-    { x1: 620, y1: 870, x2: 463.3, y2: 1095.6 },
+    { x1: 80, y1: ARC.cy, x2: 80, y2: 1300, kind: 'wood' },     // venstre vegg
+    { x1: 720, y1: ARC.cy, x2: 720, y2: 1300, kind: 'wood' },   // høyre vegg (ytterst i kanalen)
+    { x1: LANE_DIVIDER_X, y1: 260, x2: LANE_DIVIDER_X, y2: 1300, kind: 'rail' }, // skillevegg mot kanalen
+];
+for (let i = 0; i < ARC.segments; i++) {
+    const a1 = Math.PI + (i / ARC.segments) * Math.PI;
+    const a2 = Math.PI + ((i + 1) / ARC.segments) * Math.PI;
+    walls.push({
+        x1: ARC.cx + Math.cos(a1) * ARC.r, y1: ARC.cy + Math.sin(a1) * ARC.r,
+        x2: ARC.cx + Math.cos(a2) * ARC.r, y2: ARC.cy + Math.sin(a2) * ARC.r,
+        kind: 'arc',
+    });
+}
+
+// Avvisere på sidene: ballen som glir ned langs buen og veggen blir ledet inn mot midten
+// i stedet for å falle rett ned i outlanen.
+const deflectorLeft = [{ x: 80, y: 420 }, { x: 112, y: 520 }, { x: 80, y: 560 }];
+const deflectors = [deflectorLeft, deflectorLeft.map(p => mirror(p))];
+for (const poly of deflectors) {
+    for (let i = 0; i < poly.length; i++) {
+        const p = poly[i], q = poly[(i + 1) % poly.length];
+        walls.push({ x1: p.x, y1: p.y, x2: q.x, y2: q.y, kind: 'deflector' });
+    }
+}
+
+// Inlane-skinner ned mot flipperne. De ender i tangenten til flipper-pivoten, så ballen ruller
+// glatt over på flipperen. Mellom skinnen og ytterveggen er det en outlane som går rett i avløpet.
+const GUIDE_TOP = { x: 125, y: 934.8 };
+const GUIDE_END = { x: 236.7, y: 1095.6 };
+walls.push({ x1: GUIDE_TOP.x, y1: GUIDE_TOP.y, x2: GUIDE_END.x, y2: GUIDE_END.y, kind: 'rail' });
+walls.push({ x1: mirror(GUIDE_TOP).x, y1: GUIDE_TOP.y, x2: mirror(GUIDE_END).x, y2: GUIDE_END.y, kind: 'rail' });
+
+// Slingshots: trekanter over inlane-skinnene. Den skrå siden (a -> c) sparker ballen tilbake inn på brettet.
+function makeSlingshot(a, b, c) {
+    return { a, b, c, flash: 0 };
+}
+const slingA = { x: 148.0, y: 911.7 };   // topp
+const slingB = { x: 224.4, y: 1021.7 };  // nederst langs inlanen
+const slingC = { x: 268.4, y: 1045.7 };  // nederst mot flipperen
+const slingshots = [
+    makeSlingshot(slingA, slingB, slingC),
+    makeSlingshot(mirror(slingA), mirror(slingB), mirror(slingC)),
 ];
 
 const bumpers = [
@@ -57,12 +99,16 @@ function resetBall() {
     ball.ready = true;
 }
 
-// Skyter ballen opp kanalen. Returnerer false hvis ballen ikke ligger klar.
-function launch() {
+// Skyter ballen opp kanalen. power (0–1) er hvor langt fjæra ble trukket. Uten power velges en
+// tilfeldig styrke. Returnerer false hvis ballen ikke ligger klar.
+const LAUNCH_MIN = 15.8, LAUNCH_MAX = 20;
+function launch(power) {
     if (!ball.ready) return false;
+    if (typeof power !== 'number' || !isFinite(power)) power = 0.4 + Math.random() * 0.6;
+    power = Math.max(0, Math.min(1, power));
     ball.ready = false;
     ball.vx = 0;
-    ball.vy = -(17 + Math.random() * 2); // litt variasjon slik at ballen tar ulike veier
+    ball.vy = -(LAUNCH_MIN + power * (LAUNCH_MAX - LAUNCH_MIN));
     return true;
 }
 
@@ -91,16 +137,41 @@ function pushOut(x1, y1, x2, y2, thickness) {
     return { nx, ny, cx: c.x, cy: c.y };
 }
 
+// Spretter ballen av en flate. Returnerer farten inn mot flaten (negativ når ballen var på vei inn).
+function bounce(hit, restitution) {
+    const vn = ball.vx * hit.nx + ball.vy * hit.ny;
+    if (vn < 0) {
+        ball.vx -= (1 + restitution) * vn * hit.nx;
+        ball.vy -= (1 + restitution) * vn * hit.ny;
+    }
+    return vn;
+}
+
 function collideWalls() {
     for (const w of walls) {
         const hit = pushOut(w.x1, w.y1, w.x2, w.y2, 0);
-        if (!hit) continue;
-        const vn = ball.vx * hit.nx + ball.vy * hit.ny;
-        if (vn < 0) {
-            ball.vx -= (1 + WALL_BOUNCE) * vn * hit.nx;
-            ball.vy -= (1 + WALL_BOUNCE) * vn * hit.ny;
-        }
+        if (hit) bounce(hit, WALL_BOUNCE);
     }
+}
+
+function collideSlingshots(slingHits) {
+    slingshots.forEach((s, i) => {
+        // De to rette sidene er vanlige vegger
+        for (const [p, q] of [[s.a, s.b], [s.b, s.c]]) {
+            const hit = pushOut(p.x, p.y, q.x, q.y, 0);
+            if (hit) bounce(hit, WALL_BOUNCE);
+        }
+        // Den skrå siden sparker ballen ut igjen
+        const hit = pushOut(s.a.x, s.a.y, s.c.x, s.c.y, 0);
+        if (!hit) return;
+        const vn = bounce(hit, WALL_BOUNCE);
+        if (vn < -1 && s.flash === 0) {
+            ball.vx += hit.nx * SLING_KICK;
+            ball.vy += hit.ny * SLING_KICK;
+            s.flash = 8;
+            slingHits.push(i);
+        }
+    });
 }
 
 function flipperTip(f) {
@@ -167,12 +238,16 @@ function clampSpeed() {
     }
 }
 
-// Kjører én tick. Returnerer hva som skjedde: hvilke bumpere som ble truffet og om ballen gikk i avløpet.
+// Kjører én tick. Returnerer hva som skjedde: hvilke bumpere og slingshots som ble truffet,
+// og om ballen gikk i avløpet.
 function step() {
-    const events = { hits: [], drained: false };
+    const events = { hits: [], slings: [], drained: false };
 
     for (const b of bumpers) {
         if (b.hitFlash > 0) b.hitFlash -= 1;
+    }
+    for (const s of slingshots) {
+        if (s.flash > 0) s.flash -= 1;
     }
 
     for (let i = 0; i < SUBSTEPS; i++) {
@@ -185,6 +260,7 @@ function step() {
         ball.y += ball.vy / SUBSTEPS;
 
         collideWalls();
+        collideSlingshots(events.slings);
         collideFlipper(flippers.left);
         collideFlipper(flippers.right);
         collideBumpers(events.hits);
@@ -207,6 +283,9 @@ const layout = {
     W, H,
     ballR: BALL_R,
     walls,
+    arc: ARC,
+    deflectors,
+    slingshots: slingshots.map(s => ({ a: s.a, b: s.b, c: s.c })),
     lane: { x: LANE_X, restY: LANE_REST_Y, dividerX: LANE_DIVIDER_X },
     flipper: {
         len: FLIPPER_LEN, r: FLIPPER_R,
@@ -215,4 +294,4 @@ const layout = {
     },
 };
 
-module.exports = { layout, ball, bumpers, flippers, step, launch, resetBall, setFlipper };
+module.exports = { layout, ball, bumpers, slingshots, flippers, step, launch, resetBall, setFlipper, SLING_SCORE };

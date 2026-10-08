@@ -128,6 +128,11 @@ body {
   box-shadow: 0 0 24px rgba(255, 204, 85, 0.4);
 }
 
+.launch-btn.charging {
+  /* --charge (0–1) settes fra skriptet mens fjæra trekkes */
+  background: linear-gradient(90deg, #ff6b1f calc(var(--charge, 0) * 100%), #8b5e34 calc(var(--charge, 0) * 100%));
+}
+
 .launch-btn:disabled {
   opacity: 0.25;
   box-shadow: none;
@@ -172,7 +177,7 @@ body {
   </button>
 </div>
 
-<button class="launch-btn" id="launch" disabled>🚀 SKYT UT BALLEN</button>
+<button class="launch-btn" id="launch" disabled>🚀 HOLD OG SLIPP</button>
 
 <div class="status-msg" id="status">Kobler til...</div>
 
@@ -211,6 +216,8 @@ socket.on('state', (state) => {
   const myTurn = state.currentPlayer === socket.id;
   document.body.classList.toggle('not-my-turn', !myTurn);
   launchBtn.disabled = !(myTurn && state.ball.ready);
+  launchBtn.classList.toggle('charging', state.plunger > 0);
+  launchBtn.style.setProperty('--charge', state.plunger || 0);
 
   if (myTurn) {
     const score = (state.scores[socket.id] || 0).toLocaleString('nb-NO');
@@ -229,10 +236,26 @@ function sendFlip(side, active) {
   if (active && navigator.vibrate) navigator.vibrate(20);
 }
 
-launchBtn.addEventListener('click', () => {
+// Oppskyting: hold inne for å trekke fjæra (lengre = hardere), slipp for å skyte
+let pulling = false;
+function startPull() {
+  if (pulling || launchBtn.disabled) return;
+  pulling = true;
+  socket.emit('plunger-pull');
+  if (navigator.vibrate) navigator.vibrate(15);
+}
+function release() {
+  if (!pulling) return;
+  pulling = false;
   socket.emit('ball-launch');
   if (navigator.vibrate) navigator.vibrate(40);
-});
+}
+launchBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startPull(); });
+launchBtn.addEventListener('touchend', (e) => { e.preventDefault(); release(); });
+launchBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); release(); });
+launchBtn.addEventListener('mousedown', startPull);
+launchBtn.addEventListener('mouseup', release);
+launchBtn.addEventListener('mouseleave', release);
 
 const leftBtn = document.getElementById('flip-left');
 const rightBtn = document.getElementById('flip-right');
@@ -257,12 +280,13 @@ document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', true);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', true);
-  if (e.key === ' ') { e.preventDefault(); launchBtn.click(); }
+  if (e.key === ' ') { e.preventDefault(); startPull(); }
 });
 
 document.addEventListener('keyup', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', false);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', false);
+  if (e.key === ' ') release();
 });
 </script>
 </body>

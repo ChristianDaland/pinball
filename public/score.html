@@ -168,25 +168,32 @@
 
         let lastState = null;
 
+        // Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML
+        function escapeHtml(text) {
+            return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
         socket.on('state', (state) => {
-            if (lastState === JSON.stringify(state)) return;
-            lastState = JSON.stringify(state);
+            // Staten kommer 60 ganger i sekundet; tegn bare på nytt når noe på tavla har endret seg
+            const relevant = JSON.stringify([state.players, state.scores, state.currentPlayer, state.highScores]);
+            if (lastState === relevant) return;
+            lastState = relevant;
 
-            // Aktive spillere
+            // Aktive spillere, i turrekkefølge
             const playerList = document.getElementById('player-list');
-            const playerIds = Object.keys(state.scores || {});
 
-            if (playerIds.length === 0) {
+            if (state.players.length === 0) {
                 playerList.innerHTML = '<div class="empty-state">Ingen spillere tilkoblet</div>';
             } else {
                 let html = '';
-                playerIds.forEach((id, i) => {
-                    const name = state.players.find(p => p.id === id)?.name || 'Ukjent';
-                    const score = state.scores[id] || 0;
+                state.players.forEach((p, i) => {
+                    const name = escapeHtml(p.name);
+                    const score = state.scores[p.id] || 0;
                     const color = colors[i % colors.length];
+                    const icon = p.id === state.currentPlayer ? '▶️' : '🪙';
                     html += `
                         <div class="player-row">
-                            <span class="player-name" style="color:${color}">🪙 ${name}</span>
+                            <span class="player-name" style="color:${color}">${icon} ${name}</span>
                             <span class="player-score" style="color:${color}">${score.toLocaleString()}p</span>
                         </div>
                     `;
@@ -201,7 +208,7 @@
                 state.highScores.slice(0, 5).forEach((hs, i) => {
                     html += `
                         <div class="hs-row">
-                            <span>${i + 1}. ${hs.name}</span>
+                            <span>${i + 1}. ${escapeHtml(hs.name)}</span>
                             <span>${hs.score.toLocaleString()}p</span>
                         </div>
                     `;

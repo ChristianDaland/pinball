@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 const physics = require('./physics');
 
 const app = express();
@@ -15,9 +16,30 @@ const BALLS_PER_GAME = 3;
 let players = {};    // socket.id -> { name }
 let scores = {};     // socket.id -> poeng i siste/nåværende spill
 let queue = [];      // rekkefølgen spillerne får tur i
-let highScores = [];
 let game = { playerId: null, ballsLeft: BALLS_PER_GAME };
 let lastGame = null; // { name, score } – vises som "game over" på skjermen
+let plungerPullStart = null; // når fjæra begynte å trekkes (ms), eller null
+let soundEvents = [];        // lydhendelser som sendes med neste state
+
+// Topplista lagres i en JSON-fil så den overlever omstart av serveren.
+// På Render må HIGHSCORE_FILE peke til en persistent disk, ellers nullstilles den ved ny deploy.
+const HIGHSCORE_FILE = process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json');
+let highScores = loadHighScores();
+
+function loadHighScores() {
+    try {
+        const list = JSON.parse(fs.readFileSync(HIGHSCORE_FILE, 'utf8'));
+        return Array.isArray(list) ? list.filter(h => typeof h.name === 'string' && Number.isFinite(h.score)).slice(0, 10) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveHighScores() {
+    fs.writeFile(HIGHSCORE_FILE, JSON.stringify(highScores, null, 2), (err) => {
+        if (err) console.error('Kunne ikke lagre topplista:', err.message);
+    });
+}
 
 function cleanName(name) {
     if (typeof name !== 'string') return '';
@@ -30,6 +52,7 @@ function addHighScore(id) {
     highScores.push({ name: players[id].name, score });
     highScores.sort((a, b) => b.score - a.score);
     highScores = highScores.slice(0, 10);
+    saveHighScores();
 }
 
 function startTurn(id) {
@@ -39,6 +62,13 @@ function startTurn(id) {
     physics.setFlipper('left', false);
     physics.setFlipper('right', false);
     physics.resetBall();
+    plungerPullStart = null;
+}
+
+// Hvor langt fjæra er trukket (0–1). Full styrke etter 1,2 sekunder.
+function plungerPower() {
+    if (plungerPullStart === null) return 0;
+    return Math.min(1, (Date.now() - plungerPullStart) / 1200);
 }
 
 // Avslutter spillet for nåværende spiller og gir turen videre
@@ -49,6 +79,7 @@ function endGame() {
         lastGame = { name: players[id].name, score: scores[id] || 0, at: Date.now() };
         queue = queue.filter(q => q !== id);
         queue.push(id);
+        soundEvents.push({ type: 'gameover' });
     }
     startTurn(queue[0]);
 }
@@ -73,8 +104,16 @@ io.on('connection', (socket) => {
     socket.on('flip-left', (pressed) => { if (canControl(socket)) physics.setFlipper('left', pressed); });
     socket.on('flip-right', (pressed) => { if (canControl(socket)) physics.setFlipper('right', pressed); });
 
+    // Hold inne for å trekke fjæra; slipp (ball-launch) for å skyte. Uten trekk velges tilfeldig styrke.
+    socket.on('plunger-pull', () => {
+        if (canControl(socket) && physics.ball.ready && plungerPullStart === null) plungerPullStart = Date.now();
+    });
+
     socket.on('ball-launch', () => {
-        if (canControl(socket)) physics.launch();
+        if (!canControl(socket)) return;
+        const power = plungerPullStart === null ? undefined : plungerPower();
+        plungerPullStart = null;
+        if (physics.launch(power)) soundEvents.push({ type: 'launch', power: power === undefined ? 0.7 : power });
     });
 
     socket.on('disconnect', () => {
@@ -91,16 +130,28 @@ io.on('connection', (socket) => {
 setInterval(() => {
     const events = physics.step();
 
+    const addScore = (points) => {
+        if (game.playerId) scores[game.playerId] = (scores[game.playerId] || 0) + points;
+    };
     for (const i of events.hits) {
-        if (game.playerId) scores[game.playerId] = (scores[game.playerId] || 0) + physics.bumpers[i].score;
+        addScore(physics.bumpers[i].score);
+        soundEvents.push({ type: 'bumper', i });
+    }
+    for (const i of events.slings) {
+        addScore(physics.SLING_SCORE);
+        soundEvents.push({ type: 'sling', i });
     }
 
-    if (events.drained && game.playerId) {
-        game.ballsLeft -= 1;
-        if (game.ballsLeft <= 0) endGame();
+    if (events.drained) {
+        soundEvents.push({ type: 'drain' });
+        if (game.playerId) {
+            game.ballsLeft -= 1;
+            if (game.ballsLeft <= 0) endGame();
+        }
     }
 
     io.emit('state', buildGameState());
+    soundEvents = [];
 }, 1000 / 60);
 
 function buildGameState() {
@@ -119,6 +170,9 @@ function buildGameState() {
             right: { angle: f.right.angle, pressed: f.right.pressed },
         },
         bumpers: physics.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, score: b.score, color: b.color, hitFlash: b.hitFlash })),
+        slingFlash: physics.slingshots.map(s => s.flash),
+        plunger: plungerPower(),
+        events: soundEvents,
         highScores,
     };
 }
