@@ -6,6 +6,7 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0f06; font-family: 'Segoe UI', sans-serif; }
+body { display: flex; align-items: center; justify-content: center; }
 canvas { display: block; }
 </style>
 </head>
@@ -16,19 +17,14 @@ canvas { display: block; }
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const BOARD_W = 800, BOARD_H = 1300;
 let W, H;
 
 /* ── responsive canvas ── */
 function resize() {
-  const ratio = 800 / 1300;
-  const winRatio = window.innerWidth / window.innerHeight;
-  if (winRatio > ratio) {
-    canvas.height = Math.min(window.innerHeight, 900);
-    canvas.width = canvas.height * ratio;
-  } else {
-    canvas.width = window.innerWidth;
-    canvas.height = canvas.width / ratio;
-  }
+  const scale = Math.min(window.innerWidth / BOARD_W, window.innerHeight / BOARD_H);
+  canvas.width = Math.floor(BOARD_W * scale);
+  canvas.height = Math.floor(BOARD_H * scale);
   W = canvas.width;
   H = canvas.height;
 }
@@ -50,48 +46,71 @@ function playTone(freq, dur, type) {
     o.type = type || 'sine';
     o.frequency.setValueAtTime(freq, audioCtx.currentTime);
     g.gain.setValueAtTime(0.12, audioCtx.currentTime);
-    g.gain.exponentialRampToValueTime = 0.001;
-    g.gain.setValueAtTime(0.001, audioCtx.currentTime + dur);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(); o.stop(audioCtx.currentTime + dur);
   } catch (e) {}
 }
 
 /* ── game state ── */
-let players = {};
-let scores = {};
-let ball = { x: 50, y: 40, r: 7, active: false };
-let bumpers = [];
-let flippers = { left: false, right: false };
+let layout = null; // brettgeometri fra serveren (vegger, flippere, kanal)
+let state = {
+  players: [], scores: {}, currentPlayer: null, ballsLeft: 0, ballsPerGame: 3, gameOver: null,
+  ball: { x: 670, y: 1180, r: 9, ready: true },
+  flippers: { left: { angle: 0.5, pressed: false }, right: { angle: Math.PI - 0.5, pressed: false } },
+  bumpers: [],
+};
 let particles = [];
-let lastScore = 0;
+
+socket.on('layout', (data) => { layout = data; });
 
 socket.on('state', (data) => {
-  if (data.players && Array.isArray(data.players)) {
-    players = {};
-    data.players.forEach(p => { players[p.id] = { name: p.name }; });
-  }
-  if (data.scores) {
-    let totalScore = Object.values(data.scores).reduce((a, b) => a + b, 0);
-    if (totalScore > lastScore && lastScore > 0) {
+  // Nytt bumpertreff: lag partikler og lyd her på klienten
+  data.bumpers.forEach((b, i) => {
+    const prev = state.bumpers[i];
+    if (b.hitFlash > 0 && (!prev || b.hitFlash > prev.hitFlash)) {
+      addParticles(b.x, b.y, b.color, 12);
       playTone(587, 0.12, 'triangle');
       setTimeout(() => playTone(880, 0.18, 'sine'), 60);
     }
-    scores = data.scores;
-    lastScore = totalScore;
-  }
-  if (data.ball) ball = { ...ball, ...data.ball };
-  if (data.bumpers) bumpers = data.bumpers;
-  if (data.flippers) flippers = data.flippers;
-  if (data.particles) particles = data.particles;
+  });
+  state = data;
+  updateLaunchButton();
 });
 
 /* ── helpers ── */
-function toX(v) { return v / 800 * W; }
-function toY(v) { return v / 1300 * H; }
-function toR(v) { return v / 800 * W; }
+function toX(v) { return v / BOARD_W * W; }
+function toY(v) { return v / BOARD_H * H; }
+function toR(v) { return v / BOARD_W * W; }
+
+/* ── particles (kun visuelt, lages på klienten) ── */
+function addParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 8,
+      vy: (Math.random() - 0.5) * 8,
+      life: 25, maxLife: 25,
+      color: color || '#e94560',
+      size: 3 + Math.random() * 3
+    });
+  }
+}
+
+function updateParticles() {
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vx *= 0.94; p.vy *= 0.94; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+}
 
 /* ── draw playfield background ── */
+// Gresstrå lages én gang (i brettkoordinater), ellers flimrer de i hvert bilde
+const grass = Array.from({ length: 200 }, () => ({
+  x: Math.random() * BOARD_W,
+  y: 100 + Math.random() * (BOARD_H - 100),
+  dx: (Math.random() - 0.5) * 4,
+  dy: -6 - Math.random() * 8,
+}));
+
 function drawBackground() {
   // Dark green meadow gradient
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -105,16 +124,14 @@ function drawBackground() {
   // Subtle grass texture
   ctx.save();
   ctx.globalAlpha = 0.06;
-  for (let i = 0; i < 200; i++) {
-    const gx = Math.random() * W;
-    const gy = toY(100) + Math.random() * (H - toY(100));
-    ctx.strokeStyle = '#8fbc6e';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(gx, gy);
-    ctx.lineTo(gx + (Math.random() - 0.5) * 4, gy - 6 - Math.random() * 8);
-    ctx.stroke();
-  }
+  ctx.strokeStyle = '#8fbc6e';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  grass.forEach(g => {
+    ctx.moveTo(toX(g.x), toY(g.y));
+    ctx.lineTo(toX(g.x + g.dx), toY(g.y + g.dy));
+  });
+  ctx.stroke();
   ctx.restore();
 
   // Vignette overlay
@@ -155,21 +172,6 @@ function drawFrame() {
   ctx.fillStyle = gradR;
   ctx.fillRect(insetR, toY(30), frameW * 1.8, H - toY(60));
 
-  // Top arch frame
-  const topY = toY(25);
-  const archGrad = ctx.createLinearGradient(W*0.1, 0, W*0.9, 0);
-  archGrad.addColorStop(0, '#5c3a1e');
-  archGrad.addColorStop(0.5, '#8b5e34');
-  archGrad.addColorStop(1, '#5c3a1e');
-  ctx.fillStyle = archGrad;
-  
-  ctx.beginPath();
-  ctx.moveTo(insetL - frameW * 0.5, topY);
-  ctx.quadraticCurveTo(W/2, topY - frameW * 4, insetR + frameW * 0.5, topY);
-  ctx.lineTo(insetR + frameW * 0.5, topY + frameW * 3);
-  ctx.quadraticCurveTo(W/2, topY + frameW * 2 - frameW * 4, insetL - frameW * 0.5, topY + frameW * 3);
-  ctx.fill();
-
   // Nordic carving pattern on frame (decorative zigzag dots)
   ctx.shadowBlur = 0;
   const dotSpacing = toR(18);
@@ -181,42 +183,6 @@ function drawFrame() {
     drawCarvingDot(insetR + frameW * 0.9, y + (Math.sin(y * 0.02) * 3), toR(2.5));
   }
 
-  // Top arch dots
-  for (let angle = Math.PI; angle > 0; angle -= 0.12) {
-    const cx = W/2;
-    const cy = topY + frameW * 1.5;
-    const rx = (insetR - insetL) / 2 + frameW * 0.3;
-    drawCarvingDot(cx + Math.cos(angle) * rx, cy - Math.sin(angle) * frameW * 2.5, toR(2));
-  }
-
-  // Inner wall lines (where the ball bounces)
-  ctx.strokeStyle = '#a07840';
-  ctx.lineWidth = toR(3);
-  ctx.shadowColor = 'rgba(160,120,64,0.5)';
-  ctx.shadowBlur = 6;
-  
-  // Left wall
-  ctx.beginPath();
-  ctx.moveTo(insetL, topY + frameW * 3);
-  ctx.lineTo(insetL, H - toY(80));
-  ctx.stroke();
-
-  // Right wall (inside plunger lane)
-  ctx.beginPath();
-  ctx.moveTo(insetR, topY + frameW * 3);
-  ctx.lineTo(insetR, H - toY(80));
-  ctx.stroke();
-
-  // Plunger lane divider (between lane and playfield)
-  ctx.strokeStyle = '#c4963b';
-  ctx.lineWidth = toR(2);
-  ctx.shadowColor = 'rgba(196,150,59,0.4)';
-  ctx.beginPath();
-  const plungerX = toX(620); // server wall at x=620 for the lane divider
-  ctx.moveTo(plungerX, toY(150));
-  ctx.lineTo(plungerX, H - toY(130));
-  ctx.stroke();
-
   ctx.restore();
 }
 
@@ -226,6 +192,24 @@ function drawCarvingDot(x, y, r) {
   ctx.fill();
 }
 
+/* ── draw walls (samme linjestykker som serveren bruker i fysikken) ── */
+function drawWalls() {
+  if (!layout) return;
+  ctx.save();
+  ctx.strokeStyle = '#a07840';
+  ctx.lineWidth = toR(5);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(160,120,64,0.5)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  layout.walls.forEach(w => {
+    ctx.moveTo(toX(w.x1), toY(w.y1));
+    ctx.lineTo(toX(w.x2), toY(w.y2));
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
 /* ── draw plunger lane ── */
 function drawPlunger() {
   const lx = toX(620); // left edge of plunger lane
@@ -233,137 +217,65 @@ function drawPlunger() {
   const pw = rx - lx;
 
   ctx.save();
-  
+
   // Plunger lane background
   const laneGrad = ctx.createLinearGradient(lx, 0, rx, 0);
   laneGrad.addColorStop(0, '#2a2015');
   laneGrad.addColorStop(1, '#3a2c1a');
   ctx.fillStyle = laneGrad;
-  ctx.fillRect(lx, toY(140), pw, H - toY(150));
+  ctx.fillRect(lx, toY(260), pw, H - toY(260));
 
-  // Spring / plunger mechanism
+  // Spring / plunger mechanism (under ballen som ligger klar)
   const springX = (lx + rx) / 2;
-  const springTop = toY(920);
-  const springBot = toY(1100);
-  
+  const springTop = toY(1200);
+  const springBot = toY(1290);
+
   ctx.strokeStyle = '#b8860b';
   ctx.lineWidth = toR(3);
   ctx.shadowColor = 'rgba(184,134,11,0.5)';
   ctx.shadowBlur = 8;
-  
+
   ctx.beginPath();
-  for (let y = springTop; y < springBot; y += toY(12)) {
-    const offset = Math.sin((y - springTop) * 0.4) * toR(6);
-    if (y === springTop) {
-      ctx.moveTo(springX - offset, y);
-    } else {
-      ctx.lineTo(springX - offset, y);
-    }
-    ctx.lineTo(springX + offset, y);
+  ctx.moveTo(springX, springTop);
+  for (let y = springTop, i = 0; y < springBot; y += toY(10), i++) {
+    ctx.lineTo(springX + (i % 2 ? 1 : -1) * toR(10), y);
   }
   ctx.stroke();
 
   // Plunger head (wooden peg)
   ctx.shadowBlur = 0;
-  const headGrad = ctx.createRadialGradient(springX, springBot - toY(10), toR(2), springX, springBot - toY(10), toR(14));
+  const headGrad = ctx.createRadialGradient(springX, springTop, toR(2), springX, springTop, toR(14));
   headGrad.addColorStop(0, '#c9a45e');
   headGrad.addColorStop(1, '#8b6914');
   ctx.fillStyle = headGrad;
   ctx.beginPath();
-  ctx.ellipse(springX, springBot - toY(8), toR(12), toR(6), 0, 0, Math.PI * 2);
+  ctx.ellipse(springX, springTop - toY(2), toR(16), toR(5), 0, 0, Math.PI * 2);
   ctx.fill();
-
-  ctx.restore();
-}
-
-/* ── draw slingshots ── */
-function drawSlingshots() {
-  ctx.save();
-  
-  // Left slingshot (around x=150, y=850-970)
-  const sL = { x: toX(140), y1: toY(850), y2: toY(970), w: toR(16) };
-  drawSlingshot(sL, '#ff6b6b');
-
-  // Right slingshot (around x=630, y=850-970) — inside plunger lane area
-  const sR = { x: toX(600), y1: toY(850), y2: toY(970), w: toR(16) };
-  drawSlingshot(sR, '#ff6b6b');
-
-  ctx.restore();
-}
-
-function drawSlingshot(pos, color) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = toR(4);
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  
-  // Triangular shape
-  const topX = pos.x;
-  const botLeftX = pos.x - pos.w * 0.6;
-  const botRightX = pos.x + pos.w * 0.6;
-  
-  ctx.beginPath();
-  ctx.moveTo(topX, pos.y1);
-  ctx.lineTo(botLeftX, pos.y2);
-  ctx.lineTo(botRightX, pos.y2);
-  ctx.closePath();
-  ctx.stroke();
-
-  // Fill with semi-transparent color
-  ctx.globalAlpha = 0.15;
-  ctx.fillStyle = color;
-  ctx.fill();
-  
-  ctx.restore();
-}
-
-/* ── draw guide rails ── */
-function drawGuideRails() {
-  ctx.save();
-  ctx.strokeStyle = '#a07840';
-  ctx.lineWidth = toR(3);
-  ctx.shadowColor = 'rgba(160,120,64,0.4)';
-  ctx.shadowBlur = 5;
-
-  // Left guide rail (curves toward center at bottom)
-  ctx.beginPath();
-  ctx.moveTo(toX(90), toY(350));
-  ctx.quadraticCurveTo(toX(100), toY(750), toX(180), toY(1000));
-  ctx.stroke();
-
-  // Right guide rail (in plunger lane)
-  ctx.beginPath();
-  ctx.moveTo(toX(620), toY(350));
-  ctx.lineTo(toX(620), toY(800));
-  ctx.stroke();
 
   ctx.restore();
 }
 
 /* ── draw bumpers with animal icons ── */
 function drawBumpers() {
-  const animals = ['🐓', '🐔', '🐑', '🐄', '🐖'];
-  
-  bumpers.forEach((b, i) => {
+  const animals = ['🐓', '🐑', '🐔', '🐴', '🐄'];
+
+  state.bumpers.forEach((b, i) => {
     const bx = toX(b.x);
     const by = toY(b.y);
     const br = toR(b.r);
-    
+    const color = b.color || '#ff6b6b';
+
     ctx.save();
-    
+
     // Hit flash glow
     if (b.hitFlash > 0) {
-      const flashAlpha = b.hitFlash / 10 * 0.5;
-      ctx.shadowColor = b.color || '#ff6b6b';
+      ctx.shadowColor = color;
       ctx.shadowBlur = 35 + b.hitFlash * 3;
       ctx.globalAlpha = 0.4 + (b.hitFlash / 10) * 0.3;
-      
-      ctx.fillStyle = b.color || '#ff6b6b';
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(bx, by, br + toR(5), 0, Math.PI * 2);
       ctx.fill();
-      
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;
     }
@@ -372,48 +284,41 @@ function drawBumpers() {
     const bumperGrad = ctx.createRadialGradient(bx - br*0.3, by - br*0.3, br*0.1, bx, by, br);
     if (b.hitFlash > 0) {
       bumperGrad.addColorStop(0, '#ffffff');
-      bumperGrad.addColorStop(0.5, b.color || '#ff6b6b');
-      bumperGrad.addColorStop(1, '#8a3a3a');
+      bumperGrad.addColorStop(0.5, color);
+      bumperGrad.addColorStop(1, darken(color, 60));
     } else {
-      bumperGrad.addColorStop(0, lighten(b.color || '#ff6b6b', 40));
-      bumperGrad.addColorStop(0.7, b.color || '#ff6b6b');
-      bumperGrad.addColorStop(1, darken(b.color || '#ff6b6b', 30));
+      bumperGrad.addColorStop(0, lighten(color, 40));
+      bumperGrad.addColorStop(0.7, color);
+      bumperGrad.addColorStop(1, darken(color, 30));
     }
-    
+
     ctx.shadowBlur = 15;
-    ctx.shadowColor = (b.color || '#ff6b6b') + '80';
-    
+    ctx.shadowColor = color + '80';
+
     // Outer ring
     ctx.strokeStyle = '#5c3a1e';
     ctx.lineWidth = toR(3);
     ctx.beginPath();
     ctx.arc(bx, by, br, 0, Math.PI * 2);
     ctx.stroke();
-    
+
     // Fill
     ctx.fillStyle = bumperGrad;
     ctx.beginPath();
     ctx.arc(bx, by, br - toR(2), 0, Math.PI * 2);
     ctx.fill();
 
-    // Score text
-    if (b.score && b.hitFlash <= 0) {
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${toR(br*0.4)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(b.score, bx, by - toR(br*0.15));
-    }
-
     // Animal icon (centered)
-    if (b.hitFlash <= 2 && !b.score) {
-      const fontSize = toR(br * 0.7);
-      ctx.font = `${fontSize}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(animals[i % animals.length], bx, by + toR(br*0.1));
-    }
+    ctx.shadowBlur = 0;
+    ctx.font = `${br * 0.95}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(animals[i % animals.length], bx, by + br * 0.05);
+
+    // Score under bumperen
+    ctx.fillStyle = 'rgba(255,240,200,0.8)';
+    ctx.font = `bold ${toR(14)}px sans-serif`;
+    ctx.fillText(b.score, bx, by + br + toR(14));
 
     ctx.restore();
   });
@@ -421,49 +326,40 @@ function drawBumpers() {
 
 /* ── draw flippers ── */
 function drawFlippers() {
-  const pivotLX = toX(230);
-  const pivotLY = toY(1100);
-  const fLen = toR(FLIPPER_LEN);
-  
-  // Left flipper
-  const leftAngle = flippers.left ? -0.55 : 0.35;
-  drawFlipper(pivotLX, pivotLY, fLen, leftAngle, '#c0c0c0', '#e8e8e8', true);
-
-  // Right flipper
-  const pivotRX = toX(470);
-  const rightAngle = flippers.right ? (Math.PI + 0.55) : (Math.PI - 0.35);
-  drawFlipper(pivotRX, pivotLY, fLen, rightAngle, '#c0c0c0', '#e8e8e8', false);
+  if (!layout) return;
+  const fl = layout.flipper;
+  drawFlipper(fl.left, fl, state.flippers.left, '#c0c0c0', '#e8e8e8');
+  drawFlipper(fl.right, fl, state.flippers.right, '#c0c0c0', '#e8e8e8');
 }
 
-function drawFlipper(px, py, length, angle, metalColor, highlightColor, isLeft) {
+function drawFlipper(pivot, fl, flipState, metalColor, highlightColor) {
   ctx.save();
-  
-  // Metallic gradient along flipper
+
+  const px = toX(pivot.px), py = toY(pivot.py);
+  const length = toR(fl.len);
+  const angle = flipState.angle;
   const endX = px + Math.cos(angle) * length;
   const endY = py + Math.sin(angle) * length;
-  
-  const fGrad = ctx.createLinearGradient(
-    px, py - toR(8),
-    px, py + toR(8)
-  );
+
+  // Metallic gradient along flipper
+  const fGrad = ctx.createLinearGradient(px, py - toR(8), px, py + toR(8));
   fGrad.addColorStop(0, highlightColor);
   fGrad.addColorStop(0.3, metalColor);
   fGrad.addColorStop(0.7, darken(metalColor, 20));
   fGrad.addColorStop(1, '#888');
 
   ctx.strokeStyle = fGrad;
-  ctx.lineWidth = toR(16);
+  ctx.lineWidth = toR(fl.r * 2);
   ctx.lineCap = 'round';
-  
-  const isActive = isLeft ? flippers.left : flippers.right;
-  if (isActive) {
+
+  if (flipState.pressed) {
     ctx.shadowColor = '#00ffaa';
     ctx.shadowBlur = 20;
   } else {
     ctx.shadowColor = metalColor + '40';
     ctx.shadowBlur = 8;
   }
-  
+
   ctx.beginPath();
   ctx.moveTo(px, py);
   ctx.lineTo(endX, endY);
@@ -471,12 +367,12 @@ function drawFlipper(px, py, length, angle, metalColor, highlightColor, isLeft) 
 
   // Pivot circle
   ctx.shadowBlur = 0;
-  const pivotGrad = ctx.createRadialGradient(px - toR(2), py - toR(2), toR(1), px, py, toR(8));
+  const pivotGrad = ctx.createRadialGradient(px - toR(2), py - toR(2), toR(1), px, py, toR(6));
   pivotGrad.addColorStop(0, '#e0e0e0');
   pivotGrad.addColorStop(1, '#666');
   ctx.fillStyle = pivotGrad;
   ctx.beginPath();
-  ctx.arc(px, py, toR(8), 0, Math.PI * 2);
+  ctx.arc(px, py, toR(6), 0, Math.PI * 2);
   ctx.fill();
 
   // Rivets on flipper
@@ -489,63 +385,44 @@ function drawFlipper(px, py, length, angle, metalColor, highlightColor, isLeft) 
   ctx.restore();
 }
 
-/* ── drain zone ── */
+/* ── drain zone (mellom flipperne) ── */
 function drawDrain() {
-  const drainY = toY(H - toY(40)); // bottom area
-  
-  ctx.save();
-  
-  // Dark drain channel
-  ctx.fillStyle = '#1a1208';
-  ctx.fillRect(toX(95), drainY, toX(525) - toX(95), H - drainY);
-  
-  // Drain edges with metal
-  ctx.strokeStyle = '#7a6040';
-  ctx.lineWidth = toR(3);
-  ctx.shadowColor = 'rgba(122,96,64,0.5)';
-  ctx.shadowBlur = 8;
-  
-  ctx.beginPath();
-  ctx.moveTo(toX(95), drainY);
-  ctx.lineTo(toX(95), H);
-  ctx.stroke();
-  
-  ctx.beginPath();
-  ctx.moveTo(toX(525), drainY);
-  ctx.lineTo(toX(525), H);
-  ctx.stroke();
+  const left = toX(250), right = toX(450), top = toY(1175);
 
-  // "DRAIN" text (subtle)
-  ctx.shadowBlur = 0;
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, top, 0, H);
+  grad.addColorStop(0, 'rgba(26,18,8,0)');
+  grad.addColorStop(1, 'rgba(26,18,8,0.9)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(left, top, right - left, H - top);
+
   ctx.fillStyle = 'rgba(255,200,100,0.25)';
   ctx.font = `${toR(14)}px sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('DRAIN', (toX(95) + toX(525)) / 2, drainY + toR(20));
-
+  ctx.fillText('DRAIN', (left + right) / 2, H - toY(30));
   ctx.restore();
 }
 
 /* ── draw ball ── */
 function drawBall() {
-  if (!ball.active && ball.y < toY(1200)) return;
-  
+  const ball = state.ball;
   const bx = toX(ball.x);
   const by = toY(ball.y);
-  const br = toR(Math.max(5, (ball.r || 9)));
-  
+  const br = toR(ball.r || 9);
+
   ctx.save();
-  
+
   // Ball glow
   ctx.shadowColor = '#ffffff';
   ctx.shadowBlur = 25;
-  
+
   // Metallic silver ball
   const ballGrad = ctx.createRadialGradient(bx - br*0.3, by - br*0.3, br*0.05, bx, by, br);
   ballGrad.addColorStop(0, '#ffffff');
   ballGrad.addColorStop(0.4, '#e8e8e8');
   ballGrad.addColorStop(0.8, '#b0b0b0');
   ballGrad.addColorStop(1, '#707070');
-  
+
   ctx.fillStyle = ballGrad;
   ctx.beginPath();
   ctx.arc(bx, by, br, 0, Math.PI * 2);
@@ -563,15 +440,12 @@ function drawBall() {
 
 /* ── draw particles ── */
 function drawParticles() {
-  if (!particles || !Array.isArray(particles)) return;
-  
   ctx.save();
   particles.forEach(p => {
-    const alpha = (p.life / p.maxLife) * 0.8;
-    ctx.globalAlpha = alpha;
+    ctx.globalAlpha = (p.life / p.maxLife) * 0.8;
     ctx.fillStyle = p.color;
     ctx.beginPath();
-    ctx.arc(toX(p.x), toY(p.y), toR(p.size || 3) * (p.life / p.maxLife), 0, Math.PI * 2);
+    ctx.arc(toX(p.x), toY(p.y), toR(p.size) * (p.life / p.maxLife), 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.restore();
@@ -590,86 +464,145 @@ function darken(hex, amt) {
 /* ── title area ── */
 function drawTitle() {
   ctx.save();
-  const alpha = 0.12;
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = 0.35;
   ctx.fillStyle = '#ffcc55';
   ctx.font = `bold ${toR(36)}px serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.shadowColor = '#ffaa22';
   ctx.shadowBlur = 15;
-  ctx.fillText('GÅRDSPENGBALL', W/2, toY(40));
-  
-  ctx.font = `${toR(14)}px sans-serif`;
-  ctx.fillStyle = '#ddd8c8';
-  ctx.fillText('🐓 Gården kaller! 🐑', W/2, toY(75));
+  ctx.fillText('GÅRDSPENGBALL', toX(350), toY(45));
+  ctx.restore();
+}
+
+/* ── score display (spiller, poeng og baller igjen) ── */
+function drawHud() {
+  const cx = toX(350);
+  const boxW = toR(340), boxH = toR(64);
+  const top = toY(100);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,8,4,0.75)';
+  ctx.strokeStyle = '#8b5e34';
+  ctx.lineWidth = toR(2);
+  ctx.beginPath();
+  ctx.roundRect(cx - boxW / 2, top, boxW, boxH, toR(10));
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const current = state.players.find(p => p.id === state.currentPlayer);
+
+  if (current) {
+    const score = state.scores[current.id] || 0;
+    ctx.fillStyle = '#ffb732';
+    ctx.font = `bold ${toR(30)}px monospace`;
+    ctx.fillText(score.toLocaleString('nb-NO'), cx, top + toR(24));
+    ctx.fillStyle = '#ddd8c8';
+    ctx.font = `${toR(14)}px sans-serif`;
+    const ballNo = state.ballsPerGame - state.ballsLeft + 1;
+    ctx.fillText(`${current.name} · Ball ${ballNo}/${state.ballsPerGame}`, cx, top + toR(50));
+  } else {
+    ctx.fillStyle = '#ddd8c8';
+    ctx.font = `${toR(15)}px sans-serif`;
+    ctx.fillText('Ingen spillere – åpne /score.html', cx, top + toR(22));
+    ctx.fillText('og skann QR-koden for å bli med', cx, top + toR(44));
+  }
+  ctx.restore();
+}
+
+function drawGameOver() {
+  if (!state.gameOver) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, toY(520), W, toR(170));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffcc55';
+  ctx.shadowColor = '#ffaa22';
+  ctx.shadowBlur = 20;
+  ctx.font = `bold ${toR(48)}px serif`;
+  ctx.fillText('GAME OVER', W / 2, toY(570));
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = `${toR(22)}px sans-serif`;
+  ctx.fillText(`${state.gameOver.name}: ${state.gameOver.score.toLocaleString('nb-NO')} poeng`, W / 2, toY(630));
   ctx.restore();
 }
 
 /* ── plunger zone label ── */
 function drawPlungerLabel() {
-  const lx = toX(620);
-  const rx = toX(720);
-  const cy = (toY(920) + toY(1150)) / 2;
-  
+  if (!state.ball.ready) return;
+  const cx = (toX(620) + toX(720)) / 2;
+  const cy = toY(1050);
+
   ctx.save();
-  ctx.globalAlpha = 0.35;
+  ctx.globalAlpha = 0.4 + 0.3 * Math.sin(Date.now() / 200);
   ctx.fillStyle = '#ffcc55';
-  ctx.font = `bold ${toR(16)}px sans-serif`;
+  ctx.font = `bold ${toR(18)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  
-  // Rotate text vertically in plunger lane
-  ctx.save();
-  ctx.translate((lx + rx) / 2, cy);
+  ctx.translate(cx, cy);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText('SKYV!', 0, 0);
-  ctx.restore();
+  ctx.fillText('SKYV! ▶', 0, 0);
   ctx.restore();
 }
 
 /* ── main render loop ── */
 function drawGame() {
+  updateParticles();
+
   drawBackground();
   drawFrame();
-  drawTitle();
-  drawGuideRails();
-  drawSlingshots();
   drawPlunger();
+  drawWalls();
+  drawTitle();
+  drawHud();
   drawPlungerLabel();
   drawBumpers();
   drawDrain();
   drawFlippers();
   drawBall();
   drawParticles();
+  drawGameOver();
 
   requestAnimationFrame(drawGame);
 }
 
-/* ── ball launch button (visible only when ball not active) ── */
-function addLaunchButton() {
-  const btn = document.createElement('button');
-  btn.id = 'launch-btn';
-  btn.textContent = '🚀 Skyv!';
-  btn.style.cssText = `
-    position: absolute; bottom: 20px; right: 15px; z-index: 20;
-    width: 80px; height: 80px; border-radius: 50%; font-size: 16px;
-    background: radial-gradient(circle, #e94560, #c23152);
-    color: #fff; border: 3px solid #ff6b81; cursor: pointer;
-    box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
-    pointer-events: auto;
-  `;
-  btn.addEventListener('click', () => { initAudio(); socket.emit('ball-launch'); });
-  document.body.appendChild(btn);
+/* ── ball launch button (vises bare når ballen ligger klar) ── */
+const launchBtn = document.createElement('button');
+launchBtn.textContent = '🚀 Skyv!';
+launchBtn.style.cssText = `
+  position: absolute; bottom: 20px; right: 15px; z-index: 20;
+  width: 80px; height: 80px; border-radius: 50%; font-size: 16px;
+  background: radial-gradient(circle, #e94560, #c23152);
+  color: #fff; border: 3px solid #ff6b81; cursor: pointer;
+  box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
+`;
+launchBtn.addEventListener('click', () => { initAudio(); socket.emit('ball-launch'); });
+document.body.appendChild(launchBtn);
+
+function updateLaunchButton() {
+  launchBtn.style.display = state.ball.ready ? 'block' : 'none';
 }
 
-document.addEventListener('DOMContentLoaded', addLaunchButton);
+/* ── tastatur: piltaster/Z/M for flipperne, mellomrom for å skyte ut ballen ── */
+const keyMap = { ArrowLeft: 'flip-left', z: 'flip-left', a: 'flip-left', ArrowRight: 'flip-right', m: 'flip-right', d: 'flip-right' };
+document.addEventListener('keydown', (e) => {
+  initAudio();
+  if (e.repeat) return;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (keyMap[key]) socket.emit(keyMap[key], true);
+  if (key === ' ' || key === 'Enter') { e.preventDefault(); socket.emit('ball-launch'); }
+});
+document.addEventListener('keyup', (e) => {
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (keyMap[key]) socket.emit(keyMap[key], false);
+});
 window.addEventListener('click', () => { initAudio(); }, { once: true });
 
 drawGame();
-
-/* ── flipper keys for testing ── */
-const FLIPPER_LEN = 110; // used by drawFlipper reference — but we use server-side state now
 </script>
 </body>
 </html>

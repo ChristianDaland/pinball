@@ -113,6 +113,30 @@ body {
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
 }
 
+.launch-btn {
+  width: calc(100% - 32px);
+  margin: 0 16px 12px;
+  padding: 18px;
+  border: 3px solid #ffcc55;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #b8860b, #8b5e34);
+  color: #fff;
+  font-size: 24px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  flex-shrink: 0;
+  box-shadow: 0 0 24px rgba(255, 204, 85, 0.4);
+}
+
+.launch-btn:disabled {
+  opacity: 0.25;
+  box-shadow: none;
+}
+
+.not-my-turn .flipper-btn {
+  opacity: 0.35;
+}
+
 .status-msg {
   text-align: center;
   padding: 12px;
@@ -148,6 +172,8 @@ body {
   </button>
 </div>
 
+<button class="launch-btn" id="launch" disabled>🚀 SKYT UT BALLEN</button>
+
 <div class="status-msg" id="status">Kobler til...</div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -163,39 +189,50 @@ localStorage.setItem('pinball-player', playerName);
 document.getElementById('player-name').textContent = playerName;
 
 // Håndter tilkobling skikkelig
+const statusEl = document.getElementById('status');
+const launchBtn = document.getElementById('launch');
+
+function setStatus(text, color) {
+  if (statusEl.textContent !== text) statusEl.textContent = text;
+  statusEl.style.color = color;
+}
+
 socket.on('connect', () => {
-  document.getElementById('status').textContent = '✓ Tilkoblet! Trykk på knappene!';
-  document.getElementById('status').style.color = '#4ade80';
+  setStatus('✓ Tilkoblet!', '#4ade80');
   socket.emit('set-name', playerName);
-  socket.emit('start-game'); // Starter spillet automatisk slik at klienter registreres
 });
 
 socket.on('connect_error', () => {
-  document.getElementById('status').textContent = '⚠ Kunne ikke koble til serveren';
-  document.getElementById('status').style.color = '#e94560';
+  setStatus('⚠ Kunne ikke koble til serveren', '#e94560');
 });
 
-let flipInterval = null;
+// Vis om det er min tur, hvor mange baller som er igjen, og om ballen kan skytes ut
+socket.on('state', (state) => {
+  const myTurn = state.currentPlayer === socket.id;
+  document.body.classList.toggle('not-my-turn', !myTurn);
+  launchBtn.disabled = !(myTurn && state.ball.ready);
 
+  if (myTurn) {
+    const score = (state.scores[socket.id] || 0).toLocaleString('nb-NO');
+    const ballNo = state.ballsPerGame - state.ballsLeft + 1;
+    setStatus(`🎮 Din tur! Ball ${ballNo}/${state.ballsPerGame} · ${score} poeng`, '#4ade80');
+  } else {
+    const pos = state.players.findIndex(p => p.id === socket.id);
+    const current = state.players.find(p => p.id === state.currentPlayer);
+    setStatus(`⏳ ${current ? current.name : 'Noen'} spiller nå – du er nr. ${pos} i køen`, '#aaa');
+  }
+});
+
+// Sender bare når en knapp trykkes eller slippes; serveren husker tilstanden
 function sendFlip(side, active) {
   socket.emit(side === 'left' ? 'flip-left' : 'flip-right', active);
-  
-  if (active) {
-    if (navigator.vibrate) navigator.vibrate(20);
-    
-    if (!flipInterval) {
-      flipInterval = setInterval(() => {
-        socket.emit(side === 'left' ? 'flip-left' : 'flip-right', active);
-        if (navigator.vibrate) navigator.vibrate(10);
-      }, 80);
-    }
-  } else {
-    if (flipInterval) {
-      clearInterval(flipInterval);
-      flipInterval = null;
-    }
-  }
+  if (active && navigator.vibrate) navigator.vibrate(20);
 }
+
+launchBtn.addEventListener('click', () => {
+  socket.emit('ball-launch');
+  if (navigator.vibrate) navigator.vibrate(40);
+});
 
 const leftBtn = document.getElementById('flip-left');
 const rightBtn = document.getElementById('flip-right');
@@ -217,8 +254,10 @@ rightBtn.addEventListener('mouseup', () => sendFlip('right', false));
 rightBtn.addEventListener('mouseleave', () => sendFlip('right', false));
 
 document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', true);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', true);
+  if (e.key === ' ') { e.preventDefault(); launchBtn.click(); }
 });
 
 document.addEventListener('keyup', (e) => {
