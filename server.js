@@ -159,11 +159,12 @@ io.on('connection', (socket) => {
     socket.emit('machines', machineList());
 
     // Mobilen presenterer seg med sin faste klient-id. Er spilleren kjent fra før, er dette
-    // en gjenoppkobling, og spilleren beholder plassen i køen.
+    // en gjenoppkobling, og spilleren beholder plassen i køen. Navnet kan mangle her –
+    // det skrives inn når spilleren stiller seg i kø.
     socket.on('hello', (data) => {
         const cid = data && data.clientId;
         const name = cleanName(data && data.name);
-        if (!validClientId(cid) || !name) return;
+        if (!validClientId(cid)) return;
 
         let p = players[cid];
         if (p) {
@@ -174,7 +175,7 @@ io.on('connection', (socket) => {
             }
             p.socketId = socket.id;
             p.disconnectedAt = null;
-            p.name = name;
+            if (name && game.playerId !== cid) p.name = name;
         } else {
             p = players[cid] = { id: crypto.randomUUID(), name, machine: DEFAULT_MACHINE, socketId: socket.id, disconnectedAt: null };
         }
@@ -182,13 +183,19 @@ io.on('connection', (socket) => {
         socket.emit('you', { id: p.id });
     });
 
-    // Still meg i kø for en maskin. Står spilleren allerede i kø (og venter), byttes bare maskinen.
+    // Still meg i kø for en maskin, med navnet som havner på topplista. Står spilleren
+    // allerede i kø (og venter), byttes bare maskin/navn. Uten navn kommer man ikke i kø.
     socket.on('join-queue', (data) => {
         const cid = socket.data.clientId;
-        if (!cid || !players[cid]) return;
+        const p = cid && players[cid];
+        if (!p) return;
         const machine = validMachine(data && data.machine);
-        if (machine && game.playerId !== cid) players[cid].machine = machine;
-        if (queue.includes(cid)) return;
+        const name = cleanName(data && data.name);
+        if (game.playerId !== cid) {
+            if (machine) p.machine = machine;
+            if (name) p.name = name;
+        }
+        if (!p.name || queue.includes(cid)) return;
         queue.push(cid);
         if (!game.playerId) startTurn(cid);
     });

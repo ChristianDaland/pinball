@@ -194,6 +194,34 @@ body {
   box-shadow: 0 0 28px rgba(74, 222, 128, 0.35);
 }
 
+/* Navnet som vises på brettet og topplista */
+.name-field {
+  width: 85%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  font-size: 15px;
+  color: #aaa;
+}
+.name-field input {
+  width: 100%;
+  padding: 16px;
+  border: 2px solid #444;
+  border-radius: 16px;
+  background: #151522;
+  color: #fff;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.name-field input:focus { outline: none; border-color: var(--accent, #4ade80); }
+.name-field.invalid input { border-color: #e94560; }
+.name-hint { min-height: 18px; color: #e94560; font-size: 14px; text-align: center; }
+
 .leave-btn {
   display: none;
   margin: 0 auto 12px;
@@ -229,11 +257,17 @@ body {
 </head>
 <body class="not-in-queue">
 
-<div class="player-bar">Spiller: <span id="player-name">...</span></div>
+<div class="player-bar">Spiller: <span id="player-name">–</span></div>
 <div class="machine-bar"><span id="machine-name">…</span><a href="/">Bytt maskin</a></div>
 
 <div class="join-panel" id="join-panel">
   <div id="join-text">Én spiller om gangen – still deg i kø, så får du beskjed når det er din tur.</div>
+  <label class="name-field" id="name-field">
+    Ditt navn (vises på topplista)
+    <input id="name-input" type="text" maxlength="20" autocomplete="nickname" autocapitalize="words"
+           enterkeyhint="go" placeholder="Skriv navnet ditt">
+    <span class="name-hint" id="name-hint"></span>
+  </label>
   <button class="join-btn" id="join-btn">🎮 STILL MEG I KØ</button>
 </div>
 
@@ -273,14 +307,26 @@ if (!clientId) {
   localStorage.setItem('pinball-client-id', clientId);
 }
 
-let playerName = 'Spiller_' + Math.floor(Math.random() * 9000 + 1000);
+// Navnet skrives inn før man stiller seg i kø, og huskes til neste gang.
+// Gamle automatiske navn ("Spiller_1234") regnes som tomme, så spilleren må velge selv.
+const nameInput = document.getElementById('name-input');
+const nameField = document.getElementById('name-field');
+const nameHint = document.getElementById('name-hint');
+let playerName = localStorage.getItem('pinball-player') || '';
+if (/^Spiller_\d{4}$/.test(playerName)) playerName = '';
+nameInput.value = playerName;
+document.getElementById('player-name').textContent = playerName || '–';
 
-const storedName = localStorage.getItem('pinball-player');
-if (storedName) {
-  playerName = storedName;
+function readName() {
+  return nameInput.value.trim().replace(/\s+/g, ' ').slice(0, 20);
 }
-localStorage.setItem('pinball-player', playerName);
-document.getElementById('player-name').textContent = playerName;
+nameInput.addEventListener('input', () => {
+  nameField.classList.remove('invalid');
+  nameHint.textContent = '';
+});
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); joinQueue(); }
+});
 
 // Håndter tilkobling skikkelig
 const statusEl = document.getElementById('status');
@@ -313,10 +359,23 @@ socket.on('machines', (list) => {
   document.title = `${m.name} – kontroller`;
 });
 
-joinBtn.addEventListener('click', () => {
-  socket.emit('join-queue', { machine: machineId });
+function joinQueue() {
+  const name = readName();
+  if (!name) {
+    nameField.classList.add('invalid');
+    nameHint.textContent = 'Skriv inn navnet ditt først';
+    nameInput.focus();
+    return;
+  }
+  playerName = name;
+  nameInput.value = name;
+  localStorage.setItem('pinball-player', name);
+  document.getElementById('player-name').textContent = name;
+  nameInput.blur();
+  socket.emit('join-queue', { machine: machineId, name });
   if (navigator.vibrate) navigator.vibrate(20);
-});
+}
+joinBtn.addEventListener('click', joinQueue);
 leaveBtn.addEventListener('click', () => socket.emit('leave-queue'));
 
 socket.on('connect_error', () => {
@@ -333,7 +392,7 @@ socket.on('state', (state) => {
   // Står i kø for en annen maskin (valgt på nytt fra hovedsiden): bytt til denne
   if (inQueue && !myTurn && state.players[pos].machine !== machineId && !machineSwitchSent) {
     machineSwitchSent = true;
-    socket.emit('join-queue', { machine: machineId });
+    socket.emit('join-queue', { machine: machineId, name: playerName });
   }
   document.body.classList.toggle('not-in-queue', !inQueue);
   document.body.classList.toggle('waiting', inQueue && !myTurn);
@@ -418,6 +477,7 @@ rightBtn.addEventListener('mouseup', () => sendFlip('right', false));
 rightBtn.addEventListener('mouseleave', () => sendFlip('right', false));
 
 document.addEventListener('keydown', (e) => {
+  if (e.target === nameInput) return;
   if (e.repeat) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', true);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', true);
@@ -425,6 +485,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keyup', (e) => {
+  if (e.target === nameInput) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') sendFlip('left', false);
   if (e.key === 'ArrowRight' || e.key === 'd') sendFlip('right', false);
   if (e.key === ' ') release();
