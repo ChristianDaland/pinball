@@ -1,3 +1,4 @@
+try { require('dotenv').config(); } catch (err) { /* dotenv ikke installert – OK */ }
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -5,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const physics = require('./physics');
+const { createHighScores } = require('./highscores');
 
 const app = express();
 const server = http.createServer(app);
@@ -55,31 +57,13 @@ let plungerPullStart = null; // når fjæra begynte å trekkes (ms), eller null
 let readySince = null;       // når ballen ble lagt klar for spilleren som har tur (ms), eller null
 let soundEvents = [];        // lydhendelser som sendes med neste state
 
-// Topplistene (én per maskin) lagres i en JSON-fil så de overlever omstart av serveren:
-//   { "<maskin-id>": [{ name, score }, …], … }
-// På Render må HIGHSCORE_FILE peke til en persistent disk, ellers nullstilles den ved ny deploy.
-const HIGHSCORE_FILE = process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json');
-let highScores = loadHighScores();
-
-function loadHighScores() {
-    const valid = (list) => Array.isArray(list)
-        ? list.filter(h => h && typeof h.name === 'string' && Number.isFinite(h.score)).slice(0, 10) : [];
-    let data = {};
-    try {
-        data = JSON.parse(fs.readFileSync(HIGHSCORE_FILE, 'utf8'));
-    } catch (e) { /* ingen fil ennå */ }
-    // Gammelt format (én liste) var fra før det fantes flere maskiner – den hører til gården
-    if (Array.isArray(data)) data = { gard: data };
-    const result = {};
-    for (const m of machines) result[m.id] = valid(data && data[m.id]);
-    return result;
-}
-
-function saveHighScores() {
-    fs.writeFile(HIGHSCORE_FILE, JSON.stringify(highScores, null, 2), (err) => {
-        if (err) console.error('Kunne ikke lagre topplista:', err.message);
-    });
-}
+// Topplistene (én per maskin, de 10 beste) – se highscores.js. Turso hvis satt opp, ellers JSON-fil.
+// På Render uten Turso må HIGHSCORE_FILE peke til en persistent disk, ellers nullstilles den ved deploy.
+const highScores = createHighScores({
+    machineIds: machines.map(m => m.id),
+    file: process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json'),
+});
+highScores.init().then(() => io.emit('machines', machineList()));
 
 function cleanName(name) {
     if (typeof name !== 'string') return '';
@@ -94,17 +78,13 @@ function addHighScore(cid) {
     const p = players[cid];
     const score = p ? scores[p.id] || 0 : 0;
     if (score <= 0) return;
-    const list = highScores[game.machine];
-    list.push({ name: p.name, score });
-    list.sort((a, b) => b.score - a.score);
-    highScores[game.machine] = list.slice(0, 10);
-    saveHighScores();
+    highScores.add(game.machine, p.name, score);
     io.emit('machines', machineList());
 }
 
-// Maskinoversikt til hovedsiden og poengtavla: navn, farger og topp 5
+// Maskinoversikt til hovedsiden og poengtavla: navn, farger og topp 10
 function machineList() {
-    return machines.map(m => ({ ...m, highScores: highScores[m.id].slice(0, 5) }));
+    return machines.map(m => ({ ...m, highScores: highScores.top(m.id) }));
 }
 
 function startTurn(cid) {

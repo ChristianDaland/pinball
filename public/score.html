@@ -106,7 +106,8 @@ body {
   align-self: center;
 }
 .side h3 { text-align: center; color: var(--accent); letter-spacing: 0.3vh; font-size: 2.8vh; margin-bottom: 1.5vh; }
-.hs-row { display: flex; justify-content: space-between; font-size: 2.6vh; padding: 0.6vh 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.hs-row { display: flex; justify-content: space-between; gap: 1vw; font-size: 2.4vh; padding: 0.45vh 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.hs-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hs-row:last-child { border-bottom: none; }
 .hs-row .pts { font-family: 'Courier New', monospace; font-weight: bold; }
 .hs-row:first-child { color: var(--accent); font-weight: bold; }
@@ -183,7 +184,7 @@ body {
       <div class="msg" id="msg"></div>
     </div>
     <div class="side">
-      <h3>🏆 TOPPLISTE</h3>
+      <h3>🏆 TOPP 10</h3>
       <div id="hs"><div class="empty">Ingen resultater ennå</div></div>
     </div>
   </div>
