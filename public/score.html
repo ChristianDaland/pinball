@@ -147,7 +147,7 @@
     <div class="scan-hint">📱 Skann QR-koden for å spille!</div>
 
     <div class="scoreboard" id="scoreboard">
-        <h2>🎮 AKTIVE SPILLERE</h2>
+        <h2>🎮 SPILLER NÅ / I KØ</h2>
         <div id="player-list"><div class="empty-state">Venter på spillere...</div></div>
     </div>
 
@@ -188,13 +188,15 @@
                 let html = '';
                 state.players.forEach((p, i) => {
                     const name = escapeHtml(p.name);
-                    const score = state.scores[p.id] || 0;
                     const color = colors[i % colors.length];
-                    const icon = p.id === state.currentPlayer ? '▶️' : '🪙';
+                    const playing = p.id === state.currentPlayer;
+                    const label = playing ? `▶️ ${name}` : `${i}. ${name}`;
+                    const right = playing ? `${(state.scores[p.id] || 0).toLocaleString()}p` : 'venter';
+                    const away = p.away ? ' <small style="color:#888">(frakoblet)</small>' : '';
                     html += `
                         <div class="player-row">
-                            <span class="player-name" style="color:${color}">${icon} ${name}</span>
-                            <span class="player-score" style="color:${color}">${score.toLocaleString()}p</span>
+                            <span class="player-name" style="color:${color}">${label}${away}</span>
+                            <span class="player-score" style="color:${color}">${right}</span>
                         </div>
                     `;
                 });

@@ -150,6 +150,56 @@ body {
   background: #0a0a12;
 }
 
+/* Påmelding: vises i stedet for knappene når spilleren ikke står i køen */
+.join-panel {
+  display: none;
+  flex: 1;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  color: #ccc;
+  text-align: center;
+  font-size: 18px;
+}
+
+.join-btn {
+  width: 85%;
+  max-width: 420px;
+  padding: 28px 16px;
+  border: 3px solid #4ade80;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #15803d, #166534);
+  color: #fff;
+  font-size: 24px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  box-shadow: 0 0 28px rgba(74, 222, 128, 0.35);
+}
+
+.leave-btn {
+  display: none;
+  margin: 0 auto 12px;
+  padding: 8px 18px;
+  border: 1px solid #555;
+  border-radius: 999px;
+  background: transparent;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.not-in-queue .join-panel { display: flex; }
+.not-in-queue .buttons-container,
+.not-in-queue .launch-btn { display: none; }
+.waiting .leave-btn { display: block; }
+
+.my-turn .status-msg {
+  font-size: 18px;
+  font-weight: bold;
+}
+
 @media (orientation: portrait) {
   .buttons-container {
     flex-direction: column;
@@ -162,9 +212,14 @@ body {
 }
 </style>
 </head>
-<body>
+<body class="not-in-queue">
 
 <div class="player-bar">Spiller: <span id="player-name">...</span></div>
+
+<div class="join-panel" id="join-panel">
+  <div id="join-text">Én spiller om gangen – still deg i kø, så får du beskjed når det er din tur.</div>
+  <button class="join-btn" id="join-btn">🎮 STILL MEG I KØ</button>
+</div>
 
 <div class="buttons-container">
   <button class="flipper-btn" id="flip-left">
@@ -180,10 +235,24 @@ body {
 <button class="launch-btn" id="launch" disabled>🚀 HOLD OG SLIPP</button>
 
 <div class="status-msg" id="status">Kobler til...</div>
+<button class="leave-btn" id="leave-btn">Forlat køen</button>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const socket = io();
+
+// Fast klient-id, så serveren kjenner oss igjen hvis tilkoblingen faller ut.
+// crypto.randomUUID finnes bare på https/localhost, derfor reserveløsning.
+function makeId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+}
+let clientId = localStorage.getItem('pinball-client-id');
+if (!clientId) {
+  clientId = makeId();
+  localStorage.setItem('pinball-client-id', clientId);
+}
+
 let playerName = 'Spiller_' + Math.floor(Math.random() * 9000 + 1000);
 
 const storedName = localStorage.getItem('pinball-player');
@@ -196,6 +265,12 @@ document.getElementById('player-name').textContent = playerName;
 // Håndter tilkobling skikkelig
 const statusEl = document.getElementById('status');
 const launchBtn = document.getElementById('launch');
+const joinBtn = document.getElementById('join-btn');
+const joinText = document.getElementById('join-text');
+const leaveBtn = document.getElementById('leave-btn');
+let myId = null;       // offentlig id fra serveren
+let wasMyTurn = false;
+let wasInQueue = false;
 
 function setStatus(text, color) {
   if (statusEl.textContent !== text) statusEl.textContent = text;
@@ -204,8 +279,16 @@ function setStatus(text, color) {
 
 socket.on('connect', () => {
   setStatus('✓ Tilkoblet!', '#4ade80');
-  socket.emit('set-name', playerName);
+  socket.emit('hello', { clientId, name: playerName });
 });
+
+socket.on('you', (data) => { myId = data.id; });
+
+joinBtn.addEventListener('click', () => {
+  socket.emit('join-queue');
+  if (navigator.vibrate) navigator.vibrate(20);
+});
+leaveBtn.addEventListener('click', () => socket.emit('leave-queue'));
 
 socket.on('connect_error', () => {
   setStatus('⚠ Kunne ikke koble til serveren', '#e94560');
@@ -213,18 +296,41 @@ socket.on('connect_error', () => {
 
 // Vis om det er min tur, hvor mange baller som er igjen, og om ballen kan skytes ut
 socket.on('state', (state) => {
-  const myTurn = state.currentPlayer === socket.id;
+  if (!myId) return;
+  const pos = state.players.findIndex(p => p.id === myId);
+  const inQueue = pos !== -1;
+  const myTurn = state.currentPlayer === myId;
+  document.body.classList.toggle('not-in-queue', !inQueue);
+  document.body.classList.toggle('waiting', inQueue && !myTurn);
+  document.body.classList.toggle('my-turn', myTurn);
   document.body.classList.toggle('not-my-turn', !myTurn);
   launchBtn.disabled = !(myTurn && state.ball.ready);
   launchBtn.classList.toggle('charging', state.plunger > 0);
   launchBtn.style.setProperty('--charge', state.plunger || 0);
 
-  if (myTurn) {
-    const score = (state.scores[socket.id] || 0).toLocaleString('nb-NO');
+  // Ferdig med et spill (eller tiden gikk ut): tilby å spille igjen
+  if (wasInQueue && !inQueue) {
+    joinBtn.textContent = '🔁 SPILL IGJEN';
+    const go = state.gameOver && state.gameOver.name === playerName ? state.gameOver : null;
+    joinText.textContent = go ? `Game over! Du fikk ${go.score.toLocaleString('nb-NO')} poeng.` : 'Du er ute av køen.';
+  }
+  wasInQueue = inQueue;
+
+  if (myTurn && !wasMyTurn && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  wasMyTurn = myTurn;
+
+  if (!inQueue) {
+    const current = state.players.find(p => p.id === state.currentPlayer);
+    setStatus(current ? `🎮 ${current.name} spiller nå · ${state.players.length} i kø` : '✓ Ledig – ingen spiller nå', '#aaa');
+  } else if (myTurn) {
+    const score = (state.scores[myId] || 0).toLocaleString('nb-NO');
     const ballNo = state.ballsPerGame - state.ballsLeft + 1;
-    setStatus(`🎮 Din tur! Ball ${ballNo}/${state.ballsPerGame} · ${score} poeng`, '#4ade80');
+    if (state.launchCountdown !== null && state.launchCountdown <= 20) {
+      setStatus(`🚀 Skyt ut ballen! ${state.launchCountdown} s igjen før turen går videre`, '#ffcc55');
+    } else {
+      setStatus(`🎮 Din tur! Ball ${ballNo}/${state.ballsPerGame} · ${score} poeng`, '#4ade80');
+    }
   } else {
-    const pos = state.players.findIndex(p => p.id === socket.id);
     const current = state.players.find(p => p.id === state.currentPlayer);
     setStatus(`⏳ ${current ? current.name : 'Noen'} spiller nå – du er nr. ${pos} i køen`, '#aaa');
   }

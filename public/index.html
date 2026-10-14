@@ -185,7 +185,8 @@ socket.on('state', (data) => {
     if (!now && was) sounds.flipperDown();
   }
   state = data;
-  launchBtn.style.display = state.ball.ready ? 'block' : 'none';
+  // Storskjermen kan bare skyte ut ballen i fritt spill (når ingen står i kø)
+  launchBtn.style.display = state.ball.ready && !state.currentPlayer ? 'block' : 'none';
 });
 
 /* ── particles (kun visuelt) ── */
@@ -769,6 +770,16 @@ function drawHud() {
     ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx + 1, 223);
     ctx.fillStyle = '#f3e6c4';
     ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx, 222);
+    // Nedtelling når ballen ligger klar og spilleren ikke skyter den ut
+    if (state.launchCountdown !== null && state.launchCountdown <= 20) {
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = '#ffcc55';
+      ctx.fillText(`Skyt ut ballen! ${state.launchCountdown} s før neste i køen`, cx, 244);
+    } else if (current.away) {
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#ffb3b3';
+      ctx.fillText('Mistet forbindelsen – venter…', cx, 244);
+    }
     ctx.restore();
   } else {
     displayBox(cx - 115, 162, 230, 36, 'SKANN QR', 22);
