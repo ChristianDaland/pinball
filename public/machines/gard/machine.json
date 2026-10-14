@@ -1,0 +1,12 @@
+{
+  "name": "GårdsPengBall",
+  "tagline": "Høner, hester og høy fart på enga",
+  "icon": "🐓",
+  "order": 1,
+  "colors": {
+    "bg": "#2a1608",
+    "bg2": "#173a1e",
+    "accent": "#ffcc55",
+    "text": "#f3e6c4"
+  }
+}

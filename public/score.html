@@ -1,225 +1,361 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="nb">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pinball - Poengtavle</title>
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pinball – poengtavle</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+/* Toppskjermen ("backglass") over brettet. Farger og navn kommer fra maskinens machine.json. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
-            background: linear-gradient(135deg, #0a0a2e 0%, #1a0a3e 50%, #0a0a2e 100%);
-            color: #fff;
-            font-family: 'Segoe UI', sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow: hidden;
-        }
+:root {
+  --bg: #1a1a2e; --bg2: #16213e; --accent: #ffe66d; --text: #fff;
+}
 
-        h1 {
-            font-size: 3em;
-            text-transform: uppercase;
-            letter-spacing: 6px;
-            margin-bottom: 5px;
-            background: linear-gradient(90deg, #ff6b6b, #ffe66d, #4ecdc4, #ff6b6b);
-            background-size: 300% 100%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: shimmer 3s ease-in-out infinite;
-        }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 
-        @keyframes shimmer {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-        }
+body {
+  font-family: 'Segoe UI', sans-serif;
+  color: var(--text);
+}
 
-        .subtitle {
-            color: #888;
-            font-size: 1em;
-            letter-spacing: 4px;
-            text-transform: uppercase;
-            margin-bottom: 20px;
-        }
+#glass {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%),
+    linear-gradient(160deg, var(--bg), var(--bg2));
+  display: flex;
+  flex-direction: column;
+  padding: 4vh 4vw;
+  transition: background 0.6s;
+}
 
-        #qrcode {
-            background: white;
-            padding: 12px;
-            border-radius: 16px;
-            margin-bottom: 25px;
-            box-shadow: 0 0 30px rgba(78, 205, 196, 0.3);
-        }
+/* Lyspærer langs kanten med løpelys; blinker alle ved treff */
+.bulbs { position: absolute; left: 1.5vw; right: 1.5vw; display: flex; justify-content: space-between; }
+.bulbs.top { top: 1.2vh; }
+.bulbs.bottom { bottom: 1.2vh; }
+.bulbs span {
+  width: 1.1vh; height: 1.1vh; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 1.2vh var(--accent);
+  opacity: 0.25;
+  animation: chase 1.6s linear infinite;
+}
+@keyframes chase { 0%, 70%, 100% { opacity: 0.25; } 80% { opacity: 1; } }
+#glass.hit .bulbs span { animation: none; opacity: 1; }
 
-        .scan-hint {
-            color: #4ecdc4;
-            font-size: 1.1em;
-            margin-bottom: 20px;
-            animation: pulse 2s ease-in-out infinite;
-        }
+/* Maskinnavnet som lysskilt */
+.marquee { text-align: center; }
+.marquee h1 {
+  font-size: 9vh;
+  line-height: 1.05;
+  letter-spacing: 0.6vh;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 0 2vh var(--accent), 0 0 5vh color-mix(in srgb, var(--accent) 50%, transparent);
+  animation: neon 3s ease-in-out infinite;
+}
+@keyframes neon { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+.marquee .tagline { font-size: 2.4vh; opacity: 0.7; letter-spacing: 0.3vh; margin-top: 0.6vh; }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 0.7; }
-            50% { opacity: 1; }
-        }
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 30vw;
+  gap: 3vw;
+  align-items: center;
+  min-height: 0;
+}
 
-        .scoreboard {
-            background: rgba(0, 0, 0, 0.6);
-            border: 2px solid #333;
-            border-radius: 20px;
-            padding: 25px 40px;
-            min-width: 400px;
-            margin-bottom: 30px;
-        }
+.center { text-align: center; position: relative; }
+.player { font-size: 4.2vh; font-weight: bold; min-height: 5vh; }
 
-        .scoreboard h2 {
-            text-align: center;
-            color: #ffe66d;
-            font-size: 1.2em;
-            letter-spacing: 3px;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 10px;
-        }
+/* LED-display for poengene */
+.score {
+  display: inline-block;
+  margin: 1.5vh 0;
+  padding: 1vh 3vw;
+  min-width: 60%;
+  border-radius: 1.5vh;
+  background: rgba(0,0,0,0.65);
+  border: 0.4vh solid color-mix(in srgb, var(--accent) 60%, #555);
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  font-size: 15vh;
+  line-height: 1.1;
+  color: var(--accent);
+  text-shadow: 0 0 2vh var(--accent);
+  transition: transform 0.08s;
+}
+.score.bump { transform: scale(1.06); }
 
-        .player-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
+.balls { font-size: 3.4vh; letter-spacing: 1vh; min-height: 4vh; }
+.balls .used { opacity: 0.2; }
+.msg { font-size: 3.6vh; font-weight: bold; color: var(--accent); min-height: 4.5vh; margin-top: 1vh; }
 
-        .player-name {
-            font-size: 1.1em;
-        }
+.side {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2vh;
+  padding: 2.5vh 2vw;
+  align-self: center;
+}
+.side h3 { text-align: center; color: var(--accent); letter-spacing: 0.3vh; font-size: 2.8vh; margin-bottom: 1.5vh; }
+.hs-row { display: flex; justify-content: space-between; font-size: 2.6vh; padding: 0.6vh 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.hs-row:last-child { border-bottom: none; }
+.hs-row .pts { font-family: 'Courier New', monospace; font-weight: bold; }
+.hs-row:first-child { color: var(--accent); font-weight: bold; }
+.empty { text-align: center; opacity: 0.5; font-style: italic; font-size: 2.3vh; }
 
-        .player-score {
-            font-size: 1.4em;
-            font-weight: bold;
-            font-family: monospace;
-            min-width: 80px;
-            text-align: right;
-        }
+.ticker { text-align: center; font-size: 2.6vh; opacity: 0.85; min-height: 3.5vh; }
 
-        .high-scores {
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 16px;
-            padding: 20px 30px;
-            min-width: 400px;
-        }
+/* Skjermblink ved treff */
+.flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: var(--accent); mix-blend-mode: screen; }
+.flash.on { animation: flash 0.35s ease-out; }
+@keyframes flash { from { opacity: 0.35; } to { opacity: 0; } }
 
-        .high-scores h2 {
-            text-align: center;
-            color: #a8e6cf;
-            font-size: 1.1em;
-            letter-spacing: 2px;
-            margin-bottom: 10px;
-        }
+/* "+50" som flyr opp fra poengene */
+.popup {
+  position: absolute;
+  font-size: 6vh;
+  font-weight: bold;
+  color: var(--accent);
+  text-shadow: 0 0 1.5vh var(--accent), 0 0.3vh 0 #000;
+  pointer-events: none;
+  animation: rise 1s ease-out forwards;
+}
+@keyframes rise { from { transform: translateY(0) scale(1); opacity: 1; } to { transform: translateY(-14vh) scale(1.4); opacity: 0; } }
 
-        .hs-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            color: #888;
-        }
-
-        .hs-row:first-child { color: #ffe66d; font-weight: bold; font-size: 1.1em; }
-        .hs-row:nth-child(2) { color: #ff6b6b; }
-        .hs-row:nth-child(3) { color: #4ecdc4; }
-
-        .empty-state {
-            text-align: center;
-            color: #555;
-            font-style: italic;
-            padding: 20px;
-        }
-    </style>
+/* Ledig-skjerm og game over legger seg over alt */
+.overlay {
+  position: absolute; inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(0,0,0,0.72);
+  gap: 2vh;
+}
+.overlay.show { display: flex; }
+.overlay .big {
+  font-size: 13vh; font-weight: bold; color: var(--accent);
+  text-shadow: 0 0 3vh var(--accent);
+}
+.overlay .info { font-size: 4vh; }
+.overlay .record { font-size: 6vh; font-weight: bold; color: #fff; animation: blink 0.5s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.2; } }
+/* Ledig: vises der poengene står, så topplista fortsatt synes */
+#idle { display: none; flex-direction: column; align-items: center; gap: 1.5vh; }
+#idle .big { font-size: 10vh; font-weight: bold; color: var(--accent); text-shadow: 0 0 3vh var(--accent); }
+#idle .info { font-size: 3.4vh; }
+#idle-qr { background: #fff; padding: 1.2vh; border-radius: 1.5vh; }
+#idle-qr img, #idle-qr canvas { width: 22vh !important; height: 22vh !important; }
+#glass.idle #idle { display: flex; }
+#glass.idle .player, #glass.idle .score, #glass.idle .balls, #glass.idle .msg { display: none; }
+</style>
 </head>
 <body>
-    <h1>⚡ Pinball ⚡</h1>
-    <div class="subtitle">Poengtavle</div>
+<div id="glass">
+  <div class="bulbs top" id="bulbs-top"></div>
+  <div class="bulbs bottom" id="bulbs-bottom"></div>
 
-    <div id="qrcode"></div>
-    <div class="scan-hint">📱 Skann QR-koden for å spille!</div>
+  <div class="marquee">
+    <h1 id="title">Pinball</h1>
+    <div class="tagline" id="tagline"></div>
+  </div>
 
-    <div class="scoreboard" id="scoreboard">
-        <h2>🎮 SPILLER NÅ / I KØ</h2>
-        <div id="player-list"><div class="empty-state">Venter på spillere...</div></div>
+  <div class="main">
+    <div class="center" id="center">
+      <div id="idle">
+        <div class="big">LEDIG!</div>
+        <div class="info">Skann QR-koden og velg maskin</div>
+        <div id="idle-qr"></div>
+      </div>
+      <div class="player" id="player"></div>
+      <div class="score" id="score">0</div>
+      <div class="balls" id="balls"></div>
+      <div class="msg" id="msg"></div>
     </div>
-
-    <div class="high-scores" id="hs-board">
-        <h2>🏆 TOPPLISTE</h2>
-        <div id="hs-list"><div class="empty-state">Ingen resultater ennå</div></div>
+    <div class="side">
+      <h3>🏆 TOPPLISTE</h3>
+      <div id="hs"><div class="empty">Ingen resultater ennå</div></div>
     </div>
+  </div>
 
-    <script>
-        const socket = io();
-        const colors = ['#ff6b6b', '#4ecdc4', '#ffe66d', '#a8e6cf', '#ff8b94', '#dda0dd', '#f39c12', '#5dade2'];
+  <div class="ticker" id="ticker"></div>
 
-        new QRCode(document.getElementById('qrcode'), {
-            text: window.location.origin + '/mobile.html',
-            width: 140,
-            height: 140,
-        });
+  <div class="flash" id="flash"></div>
 
-        let lastState = null;
+  <div class="overlay" id="gameover">
+    <div class="big">GAME OVER</div>
+    <div class="info" id="go-info"></div>
+    <div class="record" id="go-record">🏆 NY REKORD! 🏆</div>
+  </div>
+</div>
 
-        // Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML
-        function escapeHtml(text) {
-            return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-        }
+<script>
+const socket = io();
+let machines = [];
+let machineId = null;
+let shownScore = 0, targetScore = 0;
+let msgTimer = null;
+let lastHs = null, lastTicker = null;
 
-        socket.on('state', (state) => {
-            // Staten kommer 60 ganger i sekundet; tegn bare på nytt når noe på tavla har endret seg
-            const relevant = JSON.stringify([state.players, state.scores, state.currentPlayer, state.highScores]);
-            if (lastState === relevant) return;
-            lastState = relevant;
+// Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
-            // Aktive spillere, i turrekkefølge
-            const playerList = document.getElementById('player-list');
+// Lyspærer langs kanten; forsinkelsen gir løpelys
+for (const id of ['bulbs-top', 'bulbs-bottom']) {
+  const row = document.getElementById(id);
+  for (let i = 0; i < 40; i++) {
+    const b = document.createElement('span');
+    b.style.animationDelay = `${(id === 'bulbs-top' ? i : 39 - i) * 0.04}s`;
+    row.appendChild(b);
+  }
+}
 
-            if (state.players.length === 0) {
-                playerList.innerHTML = '<div class="empty-state">Ingen spillere tilkoblet</div>';
-            } else {
-                let html = '';
-                state.players.forEach((p, i) => {
-                    const name = escapeHtml(p.name);
-                    const color = colors[i % colors.length];
-                    const playing = p.id === state.currentPlayer;
-                    const label = playing ? `▶️ ${name}` : `${i}. ${name}`;
-                    const right = playing ? `${(state.scores[p.id] || 0).toLocaleString()}p` : 'venter';
-                    const away = p.away ? ' <small style="color:#888">(frakoblet)</small>' : '';
-                    html += `
-                        <div class="player-row">
-                            <span class="player-name" style="color:${color}">${label}${away}</span>
-                            <span class="player-score" style="color:${color}">${right}</span>
-                        </div>
-                    `;
-                });
-                playerList.innerHTML = html;
-            }
+new QRCode(document.getElementById('idle-qr'), { text: location.origin + '/', width: 170, height: 170 });
 
-            // Toppliste
-            const hsList = document.getElementById('hs-list');
-            if (state.highScores && state.highScores.length > 0) {
-                let html = '';
-                state.highScores.slice(0, 5).forEach((hs, i) => {
-                    html += `
-                        <div class="hs-row">
-                            <span>${i + 1}. ${escapeHtml(hs.name)}</span>
-                            <span>${hs.score.toLocaleString()}p</span>
-                        </div>
-                    `;
-                });
-                hsList.innerHTML = html;
-            } else {
-                hsList.innerHTML = '<div class="empty-state">Ingen resultater ennå</div>';
-            }
-        });
-    </script>
+const machineById = (id) => machines.find(m => m.id === id);
+
+// Bytter farger, navn og toppliste når en annen maskin kommer på brettet
+function showMachine(id) {
+  const m = machineById(id);
+  if (!m) return;
+  machineId = id;
+  const c = m.colors || {};
+  const root = document.documentElement.style;
+  root.setProperty('--bg', c.bg || '#1a1a2e');
+  root.setProperty('--bg2', c.bg2 || '#16213e');
+  root.setProperty('--accent', c.accent || '#ffe66d');
+  root.setProperty('--text', c.text || '#fff');
+  document.getElementById('title').textContent = `${m.icon} ${m.name} ${m.icon}`;
+  document.getElementById('tagline').textContent = m.tagline;
+  document.title = `${m.name} – poengtavle`;
+  lastHs = null;
+  renderHighScores();
+}
+
+function renderHighScores() {
+  const m = machineById(machineId);
+  if (!m) return;
+  const html = m.highScores.length
+    ? m.highScores.map((h, i) => `<div class="hs-row"><span>${i + 1}. ${escapeHtml(h.name)}</span><span class="pts">${h.score.toLocaleString('nb-NO')}</span></div>`).join('')
+    : '<div class="empty">Ingen resultater ennå</div>';
+  if (html !== lastHs) { document.getElementById('hs').innerHTML = html; lastHs = html; }
+}
+
+socket.on('machines', (list) => {
+  machines = list;
+  if (machineId) renderHighScores();
+});
+
+/* ── effekter ── */
+function flash() {
+  const f = document.getElementById('flash');
+  f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+  const glass = document.getElementById('glass');
+  glass.classList.add('hit');
+  clearTimeout(flash.t);
+  flash.t = setTimeout(() => glass.classList.remove('hit'), 180);
+}
+
+function popup(points) {
+  const center = document.getElementById('center');
+  const el = document.createElement('div');
+  el.className = 'popup';
+  el.textContent = `+${points}`;
+  el.style.left = `${30 + Math.random() * 40}%`;
+  el.style.top = '35%';
+  center.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+
+function message(text, ms = 1500) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { el.textContent = ''; }, ms);
+}
+
+function bumpScore() {
+  const s = document.getElementById('score');
+  s.classList.add('bump');
+  setTimeout(() => s.classList.remove('bump'), 90);
+}
+
+/* ── tilstand fra serveren ── */
+socket.on('state', (state) => {
+  if (state.machine && state.machine !== machineId && machines.length) showMachine(state.machine);
+
+  const current = state.players.find(p => p.id === state.currentPlayer);
+  document.getElementById('player').textContent = current ? `🎮 ${current.name}${current.away ? ' (frakoblet)' : ''}` : '';
+  targetScore = current ? state.scores[current.id] || 0 : 0;
+  if (!current) shownScore = 0;
+
+  // Baller igjen: ● for baller som gjenstår (inkludert den i spill), ○ for brukte
+  const ballsEl = document.getElementById('balls');
+  if (current) {
+    const used = state.ballsPerGame - state.ballsLeft;
+    ballsEl.innerHTML = '●'.repeat(state.ballsLeft) + `<span class="used">${'●'.repeat(used)}</span>`;
+  } else {
+    ballsEl.innerHTML = '';
+  }
+
+  for (const e of state.events || []) {
+    if (e.type === 'bumper' || e.type === 'sling') {
+      if (current && e.points) popup(e.points);
+      if (e.type === 'bumper') flash();
+      bumpScore();
+    }
+    if (e.type === 'drain' && current && state.ballsLeft > 0) message('💥 BALL TAPT!');
+    if (e.type === 'launch') message('🚀 SKUTT UT!', 900);
+  }
+  if (current && state.launchCountdown !== null && state.launchCountdown <= 20) {
+    document.getElementById('msg').textContent = `Skyt ut ballen! ${state.launchCountdown} s`;
+  }
+
+  // Neste i køen
+  const waiting = state.players.filter(p => p.id !== state.currentPlayer);
+  const ticker = waiting.length
+    ? 'Neste: ' + waiting.slice(0, 4).map((p, i) => {
+        const pm = machineById(p.machine);
+        return `${i + 1}. ${escapeHtml(p.name)}${pm ? ' ' + escapeHtml(pm.icon) : ''}`;
+      }).join('  ·  ') + (waiting.length > 4 ? `  · +${waiting.length - 4}` : '')
+    : '';
+  if (ticker !== lastTicker) { document.getElementById('ticker').innerHTML = ticker; lastTicker = ticker; }
+
+  // Game over, med "ny rekord" hvis poengsummen er øverst på maskinens toppliste
+  const go = state.gameOver;
+  document.getElementById('gameover').classList.toggle('show', !!go);
+  if (go) {
+    document.getElementById('go-info').textContent = `${go.name}: ${go.score.toLocaleString('nb-NO')} poeng`;
+    const m = machineById(go.machine);
+    const top = m && m.highScores[0];
+    const isRecord = !!top && go.score > 0 && top.score === go.score && top.name === go.name;
+    document.getElementById('go-record').style.display = isRecord ? 'block' : 'none';
+  }
+  document.getElementById('glass').classList.toggle('idle', !current && !go);
+});
+
+// Poengene teller opp i stedet for å hoppe
+function tick() {
+  if (shownScore !== targetScore) {
+    const diff = targetScore - shownScore;
+    shownScore += Math.sign(diff) * Math.max(1, Math.ceil(Math.abs(diff) * 0.18));
+    if ((diff > 0 && shownScore > targetScore) || (diff < 0 && shownScore < targetScore)) shownScore = targetScore;
+  }
+  document.getElementById('score').textContent = shownScore.toLocaleString('nb-NO');
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
 </body>
 </html>

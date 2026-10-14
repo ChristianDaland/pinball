@@ -2,866 +2,268 @@
 <html lang="nb">
 <head>
 <meta charset="UTF-8">
-<title>GårdsPengBall 🐓</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pinball – velg maskin</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #120b05; font-family: 'Segoe UI', sans-serif; }
-body { display: flex; align-items: center; justify-content: center; }
-canvas { display: block; }
 
-#sound-btn {
-  position: absolute; top: 14px; left: 14px; z-index: 20;
-  padding: 10px 16px; border-radius: 999px; border: 2px solid #ffb732;
-  background: rgba(20, 12, 4, 0.85); color: #ffcc55; font-size: 15px; font-weight: bold;
-  cursor: pointer; box-shadow: 0 0 18px rgba(255, 183, 50, 0.35);
+body {
+  min-height: 100vh;
+  background: radial-gradient(ellipse at top, #1b1240 0%, #07060f 70%);
+  color: #fff;
+  font-family: 'Segoe UI', sans-serif;
+  padding: 28px 24px 40px;
 }
 
-#launch-btn {
-  position: absolute; bottom: 20px; right: 15px; z-index: 20;
-  width: 84px; height: 84px; border-radius: 50%; font-size: 15px;
-  background: radial-gradient(circle, #e94560, #c23152);
-  color: #fff; border: 3px solid #ff6b81; cursor: pointer;
-  box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
-  touch-action: none; user-select: none;
+header { text-align: center; margin-bottom: 26px; }
+
+h1 {
+  font-size: clamp(2.2em, 6vw, 4em);
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #ff6b6b, #ffe66d, #4ecdc4, #b26bff, #ff6b6b);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 6s ease-in-out infinite;
 }
+
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.subtitle { color: #aab; letter-spacing: 3px; text-transform: uppercase; font-size: 0.95em; margin-top: 4px; }
+
+/* "Spiller nå" øverst */
+.now-playing {
+  max-width: 900px;
+  margin: 0 auto 26px;
+  padding: 14px 22px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: 1.25em;
+  text-align: center;
+}
+.now-playing b { color: var(--accent, #ffe66d); }
+.now-playing .score { font-family: 'Courier New', monospace; font-weight: bold; color: var(--accent, #ffe66d); }
+
+/* Maskinkortene */
+.machines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 380px));
+  justify-content: center;
+  gap: 26px;
+  margin-bottom: 30px;
+}
+
+.machine {
+  position: relative;
+  border-radius: 22px;
+  padding: 22px 22px 20px;
+  background: linear-gradient(160deg, var(--bg), var(--bg2));
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-decoration: none;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.machine.on-table {
+  border-color: var(--accent);
+  box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 45%, transparent), 0 10px 40px rgba(0,0,0,0.5);
+}
+
+.badge {
+  position: absolute;
+  top: -12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #000;
+  font-size: 0.75em;
+  font-weight: bold;
+  letter-spacing: 1px;
+  display: none;
+}
+.machine.on-table .badge { display: block; }
+
+.machine .icon { font-size: 3.2em; line-height: 1.1; }
+.machine h2 { font-size: 1.7em; letter-spacing: 1px; color: var(--accent); margin: 6px 0 4px; }
+.machine .tagline { opacity: 0.8; font-size: 0.95em; min-height: 2.4em; }
+
+.qr {
+  background: #fff;
+  padding: 10px;
+  border-radius: 14px;
+  margin: 16px 0 10px;
+}
+.scan { font-size: 0.9em; opacity: 0.85; }
+
+.play-btn {
+  display: none;
+  margin: 16px 0 6px;
+  padding: 14px 34px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #000;
+  font-weight: bold;
+  font-size: 1.15em;
+  letter-spacing: 1px;
+}
+
+.record {
+  margin-top: 12px;
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+.record b { font-family: 'Courier New', monospace; color: var(--accent); }
+
+/* Køen */
+.queue {
+  max-width: 600px;
+  margin: 0 auto;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 18px 26px;
+}
+.queue h3 { text-align: center; color: #ffe66d; letter-spacing: 3px; margin-bottom: 10px; font-size: 1em; }
+.queue-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.queue-row:last-child { border-bottom: none; }
+.queue-row .who { font-size: 1.05em; }
+.queue-row .what { opacity: 0.75; }
+.empty { text-align: center; color: #667; font-style: italic; padding: 6px; }
+
+/* Mobil: trykk på et kort i stedet for å skanne */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  body { padding: 18px 14px 30px; }
+  .machines { grid-template-columns: 1fr; gap: 20px; }
+  .qr, .scan { display: none; }
+  .play-btn { display: inline-block; }
+  .subtitle .big-screen { display: none; }
+  .subtitle .small-screen { display: inline; }
+}
+.subtitle .small-screen { display: none; }
 </style>
 </head>
 <body>
-<canvas id="game"></canvas>
-<button id="sound-btn">🔊 Klikk for lyd</button>
-<button id="launch-btn">🚀 Hold<br>og slipp</button>
 
-<script src="/socket.io/socket.io.js"></script>
+<header>
+  <h1>🎰 Pinball 🎰</h1>
+  <div class="subtitle">
+    <span class="big-screen">Velg maskin – skann QR-koden for å stille deg i kø</span>
+    <span class="small-screen">Trykk på maskinen du vil spille</span>
+  </div>
+</header>
+
+<div class="now-playing" id="now-playing">Kobler til…</div>
+
+<div class="machines" id="machines"></div>
+
+<div class="queue">
+  <h3>⏳ KØEN</h3>
+  <div id="queue"><div class="empty">Ingen i kø</div></div>
+</div>
+
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const BW = 800, BH = 1300; // brettets koordinater; alt tegnes i disse og skaleres med S
-let S = 1;
-
-/* ── responsive canvas (skarp på HiDPI-skjermer) ── */
-function resize() {
-  const cssScale = Math.min(window.innerWidth / BW, window.innerHeight / BH);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.style.width = Math.floor(BW * cssScale) + 'px';
-  canvas.style.height = Math.floor(BH * cssScale) + 'px';
-  canvas.width = Math.floor(BW * cssScale * dpr);
-  canvas.height = Math.floor(BH * cssScale * dpr);
-  S = canvas.width / BW;
-  staticDirty = true;
-}
-
 const socket = io();
+let machines = [];
+let lastQueue = null, lastNow = null;
 
-/* ══════════════════════ LYD ══════════════════════ */
-// Nettlesere tillater bare lyd etter at brukeren har klikket eller trykket på en tast.
-let audioCtx = null, master = null;
-const soundBtn = document.getElementById('sound-btn');
-
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const comp = audioCtx.createDynamicsCompressor();
-    master = audioCtx.createGain();
-    master.gain.value = 0.7;
-    master.connect(comp);
-    comp.connect(audioCtx.destination);
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  setTimeout(updateSoundBtn, 100);
-}
-function updateSoundBtn() {
-  soundBtn.style.display = audioCtx && audioCtx.state === 'running' ? 'none' : 'block';
-}
-soundBtn.addEventListener('click', initAudio);
-window.addEventListener('pointerdown', initAudio);
-window.addEventListener('keydown', initAudio);
-
-// Én tone med valgfri pitch-glidning og eksponentiell utklinging
-function tone(freq, dur, { type = 'sine', vol = 0.3, delay = 0, slideTo = null, attack = 0.004 } = {}) {
-  if (!audioCtx || audioCtx.state !== 'running') return;
-  const t = audioCtx.currentTime + delay;
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, t);
-  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vol, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(master);
-  o.start(t); o.stop(t + dur + 0.05);
+// Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Kort støy-støt (klikk, smell, sus)
-function noise(dur, { vol = 0.3, freq = 1500, q = 1, delay = 0 } = {}) {
-  if (!audioCtx || audioCtx.state !== 'running') return;
-  const t = audioCtx.currentTime + delay;
-  const len = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
-  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  const f = audioCtx.createBiquadFilter();
-  f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
-  const g = audioCtx.createGain();
-  g.gain.value = vol;
-  src.connect(f); f.connect(g); g.connect(master);
-  src.start(t);
-}
+const machineById = (id) => machines.find(m => m.id === id);
+const controllerUrl = (id) => `${location.origin}/mobile.html?maskin=${encodeURIComponent(id)}`;
 
-// "Pling": lys bjelle med en uharmonisk overtone
-function pling(freq) {
-  tone(freq, 0.7, { vol: 0.28 });
-  tone(freq * 2.76, 0.35, { vol: 0.08 });
-  tone(freq * 5.4, 0.12, { vol: 0.03 });
-}
-
-// "Plong": dyp, treaktig tone som synker litt i tonehøyde
-function plong(freq) {
-  tone(freq, 0.45, { type: 'triangle', vol: 0.45, slideTo: freq * 0.82 });
-  tone(freq * 2, 0.18, { vol: 0.12, slideTo: freq * 1.7 });
-  noise(0.03, { vol: 0.25, freq: 900, q: 2 });
-}
-
-// Lyd per bumper: de store (50 p) sier plong, de mindre plinger lysere jo mer de gir
-const bumperSounds = [
-  () => plong(196),   // 🐓 G3
-  () => plong(147),   // 🐑 D3
-  () => pling(1047),  // 🐔 C6 – 100 poeng
-  () => pling(784),   // 🐴 G5
-  () => pling(880),   // 🐄 A5
-];
-
-const sounds = {
-  bumper: (e) => (bumperSounds[e.i] || bumperSounds[0])(),
-  sling: () => { plong(330); noise(0.05, { vol: 0.35, freq: 2500, q: 0.8 }); },
-  flipper: () => { noise(0.04, { vol: 0.5, freq: 1800, q: 1.5 }); tone(90, 0.08, { type: 'square', vol: 0.12 }); },
-  flipperDown: () => noise(0.025, { vol: 0.2, freq: 1200, q: 1.5 }),
-  launch: (e) => {
-    noise(0.25, { vol: 0.35, freq: 600, q: 0.7 });
-    tone(180, 0.35, { type: 'sawtooth', vol: 0.08, slideTo: 300 + (e.power || 0.7) * 600 });
-  },
-  drain: () => {
-    tone(392, 0.25, { type: 'triangle', vol: 0.3 });
-    tone(330, 0.25, { type: 'triangle', vol: 0.3, delay: 0.22 });
-    tone(262, 0.6, { type: 'triangle', vol: 0.3, delay: 0.44, slideTo: 196 });
-  },
-  gameover: () => {
-    [523, 494, 466, 440].forEach((f, i) => tone(f, 0.35, { type: 'square', vol: 0.08, delay: 0.8 + i * 0.28 }));
-    tone(220, 1.2, { type: 'triangle', vol: 0.25, delay: 0.8 + 4 * 0.28, slideTo: 110 });
-  },
-};
-
-/* ══════════════════════ TILSTAND ══════════════════════ */
-let layout = null; // brettgeometri fra serveren (vegger, slingshots, flippere, kanal)
-let state = {
-  players: [], scores: {}, currentPlayer: null, ballsLeft: 0, ballsPerGame: 3, gameOver: null,
-  ball: { x: 670, y: 1180, r: 9, ready: true },
-  flippers: { left: { angle: 0.5, pressed: false }, right: { angle: Math.PI - 0.5, pressed: false } },
-  bumpers: [], slingFlash: [0, 0], plunger: 0, events: [],
-};
-let particles = [];
-let ledFlash = 0; // får LED-lysene til å blinke ved treff
-
-socket.on('layout', (data) => { layout = data; staticDirty = true; });
-
-socket.on('state', (data) => {
-  for (const e of data.events || []) {
-    if (sounds[e.type]) sounds[e.type](e);
-    if (e.type === 'bumper') {
-      const b = data.bumpers[e.i];
-      addParticles(b.x, b.y, b.color, 14);
-      ledFlash = 1;
-    }
-    if (e.type === 'sling' && layout) {
-      const s = layout.slingshots[e.i];
-      addParticles((s.a.x + s.c.x) / 2, (s.a.y + s.c.y) / 2, '#ffcc55', 8);
-    }
-  }
-  for (const side of ['left', 'right']) {
-    const was = state.flippers[side].pressed, now = data.flippers[side].pressed;
-    if (now && !was) sounds.flipper();
-    if (!now && was) sounds.flipperDown();
-  }
-  state = data;
-  // Storskjermen kan bare skyte ut ballen i fritt spill (når ingen står i kø)
-  launchBtn.style.display = state.ball.ready && !state.currentPlayer ? 'block' : 'none';
+// Maskinlista kommer ved tilkobling og hver gang en toppliste endres
+socket.on('machines', (list) => {
+  const first = machines.length === 0;
+  machines = list;
+  if (first) renderMachines(); else updateRecords();
 });
 
-/* ── particles (kun visuelt) ── */
-function addParticles(x, y, color, count) {
-  for (let i = 0; i < count; i++) {
-    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
-    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 28, maxLife: 28, color, size: 2 + Math.random() * 3 });
+function renderMachines() {
+  const box = document.getElementById('machines');
+  box.innerHTML = '';
+  for (const m of machines) {
+    const card = document.createElement('a');
+    card.className = 'machine';
+    card.id = 'machine-' + m.id;
+    card.href = controllerUrl(m.id);
+    const c = m.colors || {};
+    card.style.setProperty('--bg', c.bg || '#1a1a2e');
+    card.style.setProperty('--bg2', c.bg2 || '#16213e');
+    card.style.setProperty('--accent', c.accent || '#ffe66d');
+    card.style.setProperty('--text', c.text || '#fff');
+    card.innerHTML = `
+      <div class="badge">PÅ BRETTET NÅ</div>
+      <div class="icon">${escapeHtml(m.icon)}</div>
+      <h2>${escapeHtml(m.name)}</h2>
+      <div class="tagline">${escapeHtml(m.tagline)}</div>
+      <div class="qr"></div>
+      <div class="scan">📱 Skann for å spille</div>
+      <div class="play-btn">▶ SPILL DENNE</div>
+      <div class="record"></div>`;
+    box.appendChild(card);
+    new QRCode(card.querySelector('.qr'), { text: controllerUrl(m.id), width: 150, height: 150 });
   }
-}
-function updateParticles() {
-  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vx *= 0.93; p.vy *= 0.93; p.vy += 0.08; p.life--; });
-  particles = particles.filter(p => p.life > 0);
+  updateRecords();
 }
 
-/* ══════════════════════ HJELPERE ══════════════════════ */
-// Fast tilfeldig tallrekke, så dekorasjonene ser like ut hver gang brettet tegnes på nytt
-function seeded(seed) {
-  return () => {
-    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
-    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function lighten(hex, amt) {
-  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  return `rgb(${Math.min(255,r+amt)},${Math.min(255,g+amt)},${Math.min(255,b+amt)})`;
-}
-function darken(hex, amt) {
-  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  return `rgb(${Math.max(0,r-amt)},${Math.max(0,g-amt)},${Math.max(0,b-amt)})`;
-}
-
-// Lager en ensfarget silhuett av en emoji (brukes som "utskjæringer" i treverket)
-function silhouette(emoji, size, color, flip) {
-  const c = document.createElement('canvas');
-  c.width = c.height = Math.ceil(size * 1.3);
-  const g = c.getContext('2d');
-  if (flip) { g.translate(c.width, 0); g.scale(-1, 1); }
-  g.font = `${size}px serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(emoji, c.width / 2, c.height / 2);
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalCompositeOperation = 'source-in';
-  g.fillStyle = color;
-  g.fillRect(0, 0, c.width, c.height);
-  return c;
-}
-
-// Ferdigtegnet lysglorie for LED-ene (mye raskere enn shadowBlur på hvert lys)
-const glowSprite = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,240,200,1)');
-  grad.addColorStop(0.15, 'rgba(255,190,70,0.95)');
-  grad.addColorStop(0.4, 'rgba(255,150,30,0.35)');
-  grad.addColorStop(1, 'rgba(255,140,20,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  return c;
-})();
-
-function playfieldPath(g) {
-  g.beginPath();
-  g.moveTo(80, BH);
-  g.lineTo(80, 345);
-  g.arc(400, 345, 320, Math.PI, Math.PI * 2);
-  g.lineTo(720, BH);
-  g.closePath();
-}
-
-/* ══════════════════════ STATISK LAG ══════════════════════ */
-// Treskap, gressbakgrunn, vegger og skinner endrer seg aldri, så de tegnes én gang til et eget lerret
-const staticLayer = document.createElement('canvas');
-let staticDirty = true;
-
-function buildStatic() {
-  staticLayer.width = canvas.width;
-  staticLayer.height = canvas.height;
-  const g = staticLayer.getContext('2d');
-  g.setTransform(S, 0, 0, S, 0, 0);
-  drawCabinet(g);
-  drawPlayfield(g);
-  if (layout) {
-    drawRails(g);
-    drawDeflectors(g);
-    drawSlingshotBodies(g);
-  }
-  staticDirty = false;
-}
-
-function drawCabinet(g) {
-  // Treverk med årer
-  const wood = g.createLinearGradient(0, 0, BW, 0);
-  wood.addColorStop(0, '#4a2a12');
-  wood.addColorStop(0.08, '#7a4a22');
-  wood.addColorStop(0.5, '#6b3f1c');
-  wood.addColorStop(0.92, '#7a4a22');
-  wood.addColorStop(1, '#4a2a12');
-  g.fillStyle = wood;
-  g.fillRect(0, 0, BW, BH);
-
-  const rnd = seeded(7);
-  g.save();
-  g.globalAlpha = 0.18;
-  g.strokeStyle = '#2e1808';
-  g.lineWidth = 1;
-  for (let i = 0; i < 70; i++) {
-    const x = rnd() * BW, amp = 2 + rnd() * 5, ph = rnd() * 10;
-    g.beginPath();
-    for (let y = 0; y <= BH; y += 20) g.lineTo(x + Math.sin(y * 0.01 + ph) * amp, y);
-    g.stroke();
-  }
-  g.restore();
-
-  // Fresede kanter rundt hele skapet
-  g.save();
-  g.strokeStyle = 'rgba(30,15,5,0.7)';
-  g.lineWidth = 4;
-  g.strokeRect(10, 10, BW - 20, BH - 20);
-  g.strokeStyle = 'rgba(255,210,150,0.18)';
-  g.lineWidth = 2;
-  g.strokeRect(15, 15, BW - 30, BH - 30);
-  g.restore();
-
-  // Utskjæringer: dyr i hjørnene og korn langs sidene
-  const carve = 'rgba(40,20,6,0.55)';
-  g.drawImage(silhouette('🐓', 90, carve), 30, 25, 117, 117);
-  g.drawImage(silhouette('🐴', 90, carve, true), BW - 147, 25, 117, 117);
-  const wheat = silhouette('🌾', 40, carve);
-  for (const y of [470, 640, 810, 980, 1150]) {
-    g.drawImage(wheat, 14, y, 52, 52);
-    g.drawImage(wheat, BW - 66, y, 52, 52);
+function updateRecords() {
+  for (const m of machines) {
+    const el = document.querySelector(`#machine-${m.id} .record`);
+    if (!el) continue;
+    const top = m.highScores[0];
+    el.innerHTML = top ? `🏆 Rekord: <b>${top.score.toLocaleString('nb-NO')}</b> – ${escapeHtml(top.name)}` : '🏆 Ingen rekord ennå – bli den første!';
   }
 }
 
-function drawPlayfield(g) {
-  g.save();
-  playfieldPath(g);
-  g.clip();
-
-  // Grønn eng
-  const bg = g.createLinearGradient(0, 0, 0, BH);
-  bg.addColorStop(0, '#173a1e');
-  bg.addColorStop(0.45, '#1f4d29');
-  bg.addColorStop(0.8, '#215a2c');
-  bg.addColorStop(1, '#122e17');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, BW, BH);
-
-  // Gresstrå
-  const rnd = seeded(42);
-  g.strokeStyle = 'rgba(150,200,110,0.07)';
-  g.lineWidth = 1;
-  g.beginPath();
-  for (let i = 0; i < 260; i++) {
-    const x = 80 + rnd() * 640, y = 100 + rnd() * 1200;
-    g.moveTo(x, y);
-    g.lineTo(x + (rnd() - 0.5) * 5, y - 6 - rnd() * 9);
-  }
-  g.stroke();
-
-  // Silhuetter av gress og blomster nederst, og noen tuster rundt på brettet
-  const tuft = silhouette('🌿', 40, 'rgba(10,30,12,0.35)');
-  const flower = silhouette('🌼', 26, 'rgba(10,30,12,0.3)');
-  [[150, 620], [560, 700], [300, 760], [130, 360], [590, 400], [420, 860]].forEach(([x, y]) => g.drawImage(tuft, x, y, 46, 46));
-  for (let x = 90; x < 610; x += 34 + rnd() * 20) {
-    g.drawImage(rnd() < 0.3 ? flower : tuft, x, 1180 + rnd() * 50, 40, 40);
+socket.on('state', (state) => {
+  // Maskinen på brettet
+  for (const m of machines) {
+    const card = document.getElementById('machine-' + m.id);
+    if (card) card.classList.toggle('on-table', m.id === state.machine);
   }
 
-  // Glassrefleks på skrå over brettet
-  const sheen = g.createLinearGradient(250, 0, 650, 500);
-  sheen.addColorStop(0, 'rgba(255,255,255,0)');
-  sheen.addColorStop(0.5, 'rgba(255,255,255,0.05)');
-  sheen.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = sheen;
-  g.fillRect(0, 0, BW, BH);
-
-  // Oppskytingskanalen
-  const lane = g.createLinearGradient(620, 0, 720, 0);
-  lane.addColorStop(0, '#2a1a0c');
-  lane.addColorStop(1, '#3c2612');
-  g.fillStyle = lane;
-  g.fillRect(620, 260, 100, BH - 260);
-
-  // Mørkt avløp nederst
-  const drain = g.createLinearGradient(0, 1150, 0, BH);
-  drain.addColorStop(0, 'rgba(0,0,0,0)');
-  drain.addColorStop(1, 'rgba(0,0,0,0.75)');
-  g.fillStyle = drain;
-  g.fillRect(80, 1150, 540, 150);
-
-  // Vignett
-  const vig = g.createRadialGradient(350, 600, 200, 350, 600, 800);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.45)');
-  g.fillStyle = vig;
-  g.fillRect(0, 0, BW, BH);
-  g.restore();
-
-  // Treramme rundt spillefeltet (taket og ytterveggene)
-  g.save();
-  g.lineJoin = 'round';
-  g.beginPath();
-  g.moveTo(80, BH);
-  g.lineTo(80, 345);
-  g.arc(400, 345, 320, Math.PI, Math.PI * 2);
-  g.lineTo(720, BH);
-  g.strokeStyle = '#3a2210';
-  g.lineWidth = 12;
-  g.stroke();
-  g.strokeStyle = '#c4963b';
-  g.lineWidth = 2;
-  g.stroke();
-  g.restore();
-}
-
-// Metallskinne: mørk kant, lys midte og et skinn av refleks
-function metalLine(g, x1, y1, x2, y2, width) {
-  g.save();
-  g.lineCap = 'round';
-  g.strokeStyle = '#4d4d4d';
-  g.lineWidth = width + 2;
-  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-  g.strokeStyle = '#b8bcc2';
-  g.lineWidth = width;
-  g.stroke();
-  g.strokeStyle = 'rgba(255,255,255,0.75)';
-  g.lineWidth = width * 0.3;
-  g.stroke();
-  g.restore();
-}
-
-function drawRails(g) {
-  layout.walls.filter(w => w.kind === 'rail').forEach(w => metalLine(g, w.x1, w.y1, w.x2, w.y2, 5));
-  // Ytre metallskinne langs kanalen, som på bildet
-  metalLine(g, 706, 360, 706, 1270, 3);
-}
-
-function drawDeflectors(g) {
-  layout.deflectors.forEach(poly => {
-    g.save();
-    g.beginPath();
-    poly.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
-    g.closePath();
-    const grad = g.createLinearGradient(poly[0].x, poly[0].y, poly[1].x, poly[1].y);
-    grad.addColorStop(0, '#8b5e34');
-    grad.addColorStop(1, '#5c3a1e');
-    g.fillStyle = grad;
-    g.fill();
-    g.strokeStyle = '#c0c4ca';
-    g.lineWidth = 3;
-    g.stroke();
-    g.restore();
-  });
-}
-
-function drawSlingshotBodies(g) {
-  layout.slingshots.forEach(s => {
-    g.save();
-    g.beginPath();
-    g.moveTo(s.a.x, s.a.y); g.lineTo(s.b.x, s.b.y); g.lineTo(s.c.x, s.c.y); g.closePath();
-    const grad = g.createLinearGradient(s.a.x, s.a.y, s.c.x, s.c.y);
-    grad.addColorStop(0, '#9a6a3c');
-    grad.addColorStop(1, '#5c3a1e');
-    g.fillStyle = grad;
-    g.fill();
-    g.strokeStyle = '#3a2210';
-    g.lineWidth = 3;
-    g.stroke();
-    // Innfelt treplate og nagler
-    const cx = (s.a.x + s.b.x + s.c.x) / 3, cy = (s.a.y + s.b.y + s.c.y) / 3;
-    g.beginPath();
-    [s.a, s.b, s.c].forEach((p, i) => {
-      const x = cx + (p.x - cx) * 0.6, y = cy + (p.y - cy) * 0.6;
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
-    });
-    g.closePath();
-    g.strokeStyle = 'rgba(255,210,150,0.35)';
-    g.lineWidth = 2;
-    g.stroke();
-    [s.a, s.b, s.c].forEach(p => {
-      const x = cx + (p.x - cx) * 0.8, y = cy + (p.y - cy) * 0.8;
-      g.fillStyle = '#d0d4da';
-      g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#6a6a6a';
-      g.beginPath(); g.arc(x + 0.8, y + 0.8, 1.2, 0, Math.PI * 2); g.fill();
-    });
-    g.restore();
-  });
-}
-
-/* ══════════════════════ DYNAMISKE ELEMENTER ══════════════════════ */
-// LED-lys langs buen og sidene, med et "løpelys" og blink ved treff
-const leds = [];
-for (let a = Math.PI + 0.06; a < Math.PI * 2 - 0.04; a += 0.085) leds.push({ x: 400 + Math.cos(a) * 335, y: 345 + Math.sin(a) * 335 });
-for (let y = 380; y < 1280; y += 34) { leds.push({ x: 64, y }); leds.push({ x: 736, y }); }
-leds.sort((p, q) => Math.atan2(p.y - 600, p.x - 400) - Math.atan2(q.y - 600, q.x - 400));
-
-function drawLeds(now) {
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  leds.forEach((p, i) => {
-    const chase = Math.pow(Math.max(0, Math.sin(now * 0.004 - i * 0.35)), 6);
-    const a = Math.min(1, 0.3 + chase * 0.7 + ledFlash * 0.7);
-    ctx.globalAlpha = a;
-    ctx.drawImage(glowSprite, p.x - 11, p.y - 11, 22, 22);
-  });
-  ctx.restore();
-  ledFlash = Math.max(0, ledFlash - 0.06);
-}
-
-function drawSlingRubbers() {
-  if (!layout) return;
-  layout.slingshots.forEach((s, i) => {
-    const flash = (state.slingFlash[i] || 0) / 8;
-    // Gummistrikken spretter litt ut når den sparker
-    const dx = s.c.x - s.a.x, dy = s.c.y - s.a.y, len = Math.hypot(dx, dy);
-    let nx = dy / len, ny = -dx / len;
-    if (nx * (350 - s.a.x) < 0) { nx = -nx; ny = -ny; }
-    const off = flash * 5;
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.shadowColor = '#ffcc55';
-    ctx.shadowBlur = flash * 25 * S;
-    ctx.strokeStyle = flash > 0 ? '#ffe08a' : '#efe9dc';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(s.a.x + nx * off, s.a.y + ny * off);
-    ctx.lineTo(s.c.x + nx * off, s.c.y + ny * off);
-    ctx.stroke();
-    ctx.restore();
-  });
-}
-
-function drawPlunger() {
-  const pull = state.ball.ready ? state.plunger || 0 : 0;
-  const x = 670, top = 1192 + pull * 40, bottom = 1292;
-  ctx.save();
-  // Fjær
-  ctx.strokeStyle = '#c9a227';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(x, top);
-  const coils = 9;
-  for (let i = 1; i <= coils; i++) ctx.lineTo(x + (i % 2 ? 11 : -11), top + (bottom - top) * i / coils);
-  ctx.stroke();
-  // Stempelhode
-  const head = ctx.createLinearGradient(x - 16, 0, x + 16, 0);
-  head.addColorStop(0, '#8b6914');
-  head.addColorStop(0.5, '#e0c07a');
-  head.addColorStop(1, '#8b6914');
-  ctx.fillStyle = head;
-  ctx.beginPath();
-  ctx.roundRect(x - 16, top - 4, 32, 8, 3);
-  ctx.fill();
-  ctx.restore();
-
-  // Ladeindikator ved siden av kanalen
-  if (pull > 0) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(626, 1000, 8, 150);
-    ctx.fillStyle = `hsl(${40 - pull * 40}, 100%, 55%)`;
-    ctx.fillRect(626, 1150 - pull * 150, 8, pull * 150);
-    ctx.restore();
-  }
-}
-
-function drawPlungerLabel(now) {
-  if (!state.ball.ready || state.plunger > 0) return;
-  ctx.save();
-  ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now / 200);
-  ctx.fillStyle = '#ffcc55';
-  ctx.font = 'bold 18px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.translate(670, 1040);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText('SKYV! ▶', 0, 0);
-  ctx.restore();
-}
-
-function drawBumpers() {
-  const animals = ['🐓', '🐑', '🐔', '🐴', '🐄'];
-  state.bumpers.forEach((b, i) => {
-    const flash = b.hitFlash / 10;
-    const color = b.color || '#ff6b6b';
-    const r = b.r * (1 + flash * 0.06);
-
-    ctx.save();
-    ctx.translate(b.x, b.y);
-
-    // Skygge og glød ved treff
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.arc(3, 5, r + 3, 0, Math.PI * 2); ctx.fill();
-    if (flash > 0) {
-      const glow = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r + 26 * flash);
-      glow.addColorStop(0, color);
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.globalAlpha = 0.8 * flash;
-      ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(0, 0, r + 26 * flash, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Kremfarget skive med metallkant
-    ctx.fillStyle = '#f3e6c4';
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#7a5a30';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Solstråle-ring
-    const points = 16;
-    ctx.fillStyle = flash > 0 ? lighten(color, 60) : color;
-    ctx.beginPath();
-    for (let k = 0; k < points * 2; k++) {
-      const a = (k / (points * 2)) * Math.PI * 2;
-      const rad = k % 2 === 0 ? r * 0.94 : r * 0.68;
-      k ? ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad) : ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    // Indre skive
-    const inner = ctx.createRadialGradient(-r * 0.2, -r * 0.2, 1, 0, 0, r * 0.62);
-    inner.addColorStop(0, flash > 0 ? '#ffffff' : '#fff8e6');
-    inner.addColorStop(1, '#e8d6ac');
-    ctx.fillStyle = inner;
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = darken(color, 30);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Dyret
-    ctx.font = `${r * 0.78}px serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(animals[i % animals.length], 0, r * 0.04);
-
-    // Poeng under bumperen
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText(b.score, 1, r + 17);
-    ctx.fillStyle = '#f3e6c4';
-    ctx.fillText(b.score, 0, r + 16);
-
-    ctx.restore();
-  });
-}
-
-// Flipper som avsmalnende hvit gummi med metallbolt, slik som på bildet
-function drawFlipper(pivot, len, flip) {
-  const R1 = 11, R2 = 6;
-  ctx.save();
-  ctx.translate(pivot.px, pivot.py);
-  ctx.rotate(flip.angle);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  flipperShape(len, R1, R2, 3, 5);
-  ctx.fill();
-
-  const grad = ctx.createLinearGradient(0, -R1, 0, R1);
-  grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.5, '#e4e6ea');
-  grad.addColorStop(1, '#a9adb3');
-  ctx.fillStyle = grad;
-  if (flip.pressed) { ctx.shadowColor = '#fff4c0'; ctx.shadowBlur = 16 * S; }
-  flipperShape(len, R1, R2, 0, 0);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = '#7d828a';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Bolt i pivot-punktet
-  const bolt = ctx.createRadialGradient(-2, -2, 1, 0, 0, 6);
-  bolt.addColorStop(0, '#f4f4f4');
-  bolt.addColorStop(1, '#6a6e74');
-  ctx.fillStyle = bolt;
-  ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
-function flipperShape(len, r1, r2, ox, oy) {
-  const a = Math.asin((r1 - r2) / len);
-  ctx.beginPath();
-  ctx.arc(ox, oy, r1, Math.PI / 2 + a, Math.PI * 1.5 - a);
-  ctx.arc(ox + len, oy, r2, -Math.PI / 2 - a, Math.PI / 2 + a);
-  ctx.closePath();
-}
-
-function drawFlippers() {
-  if (!layout) return;
-  drawFlipper(layout.flipper.left, layout.flipper.len, state.flippers.left);
-  drawFlipper(layout.flipper.right, layout.flipper.len, state.flippers.right);
-}
-
-function drawBall() {
-  const ball = state.ball;
-  const r = ball.r || 9;
-  // Mens fjæra trekkes, følger ballen stempelet ned
-  const x = ball.x, y = ball.y + (ball.ready ? (state.plunger || 0) * 40 : 0);
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath(); ctx.arc(x + 3, y + 4, r, 0, Math.PI * 2); ctx.fill();
-
-  const grad = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.05, x, y, r);
-  grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.35, '#e2e4e8');
-  grad.addColorStop(0.75, '#8e939a');
-  grad.addColorStop(1, '#4e5258');
-  ctx.fillStyle = grad;
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-
-  // Refleks av grønt brett i underkant
-  ctx.fillStyle = 'rgba(80,160,90,0.35)';
-  ctx.beginPath(); ctx.arc(x + r * 0.15, y + r * 0.45, r * 0.4, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
-function drawParticles() {
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  particles.forEach(p => {
-    ctx.globalAlpha = (p.life / p.maxLife) * 0.9;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * (p.life / p.maxLife), 0, Math.PI * 2);
-    ctx.fill();
-  });
-  ctx.restore();
-}
-
-// LED-display med metallramme (tittel og poeng)
-function displayBox(x, y, w, h, text, size) {
-  ctx.save();
-  ctx.fillStyle = '#5a5e64';
-  ctx.beginPath(); ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 9); ctx.fill();
-  const frame = ctx.createLinearGradient(0, y - 4, 0, y + h + 4);
-  frame.addColorStop(0, '#d8dbe0');
-  frame.addColorStop(1, '#6e7278');
-  ctx.strokeStyle = frame;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = '#140d06';
-  ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
-
-  // Prikkmønster som på et ekte LED-display
-  ctx.fillStyle = 'rgba(255,140,30,0.06)';
-  for (let px = x + 4; px < x + w - 2; px += 4) for (let py = y + 4; py < y + h - 2; py += 4) ctx.fillRect(px, py, 1.5, 1.5);
-
-  ctx.font = `bold ${size}px "Courier New", monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = '#ff9a1f';
-  ctx.shadowBlur = 10 * S;
-  ctx.fillStyle = '#ffb347';
-  ctx.fillText(text, x + w / 2, y + h / 2 + 1);
-  ctx.restore();
-}
-
-function drawHud() {
-  const cx = 350;
-  displayBox(cx - 130, 112, 260, 40, 'GÅRDSPENGBALL', 24);
-
+  // Hvem spiller nå
   const current = state.players.find(p => p.id === state.currentPlayer);
-  if (current) {
-    const score = (state.scores[current.id] || 0).toLocaleString('nb-NO');
-    displayBox(cx - 85, 162, 170, 36, score, 26);
-    const ballNo = state.ballsPerGame - state.ballsLeft + 1;
-    ctx.save();
-    ctx.font = 'bold 15px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx + 1, 223);
-    ctx.fillStyle = '#f3e6c4';
-    ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx, 222);
-    // Nedtelling når ballen ligger klar og spilleren ikke skyter den ut
-    if (state.launchCountdown !== null && state.launchCountdown <= 20) {
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillStyle = '#ffcc55';
-      ctx.fillText(`Skyt ut ballen! ${state.launchCountdown} s før neste i køen`, cx, 244);
-    } else if (current.away) {
-      ctx.font = '14px sans-serif';
-      ctx.fillStyle = '#ffb3b3';
-      ctx.fillText('Mistet forbindelsen – venter…', cx, 244);
-    }
-    ctx.restore();
-  } else {
-    displayBox(cx - 115, 162, 230, 36, 'SKANN QR', 22);
-    ctx.save();
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#f3e6c4';
-    ctx.fillText('QR-koden finner du på /score.html', cx, 222);
-    ctx.restore();
-  }
-}
+  const m = machineById(state.machine);
+  const nowBox = document.getElementById('now-playing');
+  if (m) nowBox.style.setProperty('--accent', (m.colors && m.colors.accent) || '#ffe66d');
+  const nowHtml = current && m
+    ? `${escapeHtml(m.icon)} <span><b>${escapeHtml(current.name)}</b> spiller ${escapeHtml(m.name)} – ball ${state.ballsPerGame - state.ballsLeft + 1}/${state.ballsPerGame}</span>
+       <span class="score">${(state.scores[current.id] || 0).toLocaleString('nb-NO')}</span>`
+    : '✅ Ledig! Velg en maskin og begynn å spille.';
+  if (nowHtml !== lastNow) { nowBox.innerHTML = nowHtml; lastNow = nowHtml; }
 
-function drawGameOver() {
-  if (!state.gameOver) return;
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  ctx.fillRect(80, 640, 540, 170);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffcc55';
-  ctx.shadowColor = '#ffaa22';
-  ctx.shadowBlur = 20 * S;
-  ctx.font = 'bold 50px serif';
-  ctx.fillText('GAME OVER', 350, 695);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#fff';
-  ctx.font = '22px sans-serif';
-  ctx.fillText(`${state.gameOver.name}: ${state.gameOver.score.toLocaleString('nb-NO')} poeng`, 350, 760);
-  ctx.restore();
-}
-
-/* ── main render loop ── */
-function drawGame(now) {
-  if (staticDirty) buildStatic();
-  updateParticles();
-
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(staticLayer, 0, 0);
-  ctx.setTransform(S, 0, 0, S, 0, 0);
-
-  drawLeds(now);
-  drawSlingRubbers();
-  drawPlunger();
-  drawPlungerLabel(now);
-  drawHud();
-  drawBumpers();
-  drawFlippers();
-  drawBall();
-  drawParticles();
-  drawGameOver();
-
-  requestAnimationFrame(drawGame);
-}
-
-/* ══════════════════════ KONTROLLER ══════════════════════ */
-// Oppskyting: hold inne for å trekke fjæra, slipp for å skyte
-const launchBtn = document.getElementById('launch-btn');
-let pulling = false;
-function startPull() { if (!pulling) { pulling = true; socket.emit('plunger-pull'); } }
-function release() { if (pulling) { pulling = false; socket.emit('ball-launch'); } }
-launchBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); startPull(); });
-launchBtn.addEventListener('pointerup', release);
-launchBtn.addEventListener('pointerleave', release);
-
-// Tastatur: piltaster/Z/M (eller A/D) for flipperne, hold mellomrom for å skyte ut ballen
-const keyMap = { ArrowLeft: 'flip-left', z: 'flip-left', a: 'flip-left', ArrowRight: 'flip-right', m: 'flip-right', d: 'flip-right' };
-const keyOf = (e) => e.key.length === 1 ? e.key.toLowerCase() : e.key;
-document.addEventListener('keydown', (e) => {
-  if (e.repeat) return;
-  const key = keyOf(e);
-  if (keyMap[key]) socket.emit(keyMap[key], true);
-  if (key === ' ' || key === 'Enter') { e.preventDefault(); startPull(); }
+  // Køen (uten den som spiller)
+  const waiting = state.players.filter(p => p.id !== state.currentPlayer);
+  const queueHtml = waiting.length
+    ? waiting.map((p, i) => {
+        const pm = machineById(p.machine);
+        return `<div class="queue-row"><span class="who">${i + 1}. ${escapeHtml(p.name)}${p.away ? ' <small>(frakoblet)</small>' : ''}</span>
+                <span class="what">${pm ? escapeHtml(pm.icon + ' ' + pm.name) : ''}</span></div>`;
+      }).join('')
+    : '<div class="empty">Ingen i kø</div>';
+  if (queueHtml !== lastQueue) { document.getElementById('queue').innerHTML = queueHtml; lastQueue = queueHtml; }
 });
-document.addEventListener('keyup', (e) => {
-  const key = keyOf(e);
-  if (keyMap[key]) socket.emit(keyMap[key], false);
-  if (key === ' ' || key === 'Enter') release();
-});
-
-resize();
-window.addEventListener('resize', resize);
-requestAnimationFrame(drawGame);
 </script>
 </body>
 </html>

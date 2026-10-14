@@ -40,6 +40,21 @@ body {
 
 .player-bar span { color: #fff; }
 
+/* Valgt maskin, med lenke tilbake til hovedsiden for å bytte */
+.machine-bar {
+  width: 100%;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255,255,255,0.04);
+  color: var(--accent, #ffe66d);
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.machine-bar a { color: #aaa; font-weight: normal; font-size: 14px; }
+.my-turn .machine-bar a { visibility: hidden; }
+
 .buttons-container {
   width: 100%;
   flex: 1;
@@ -215,6 +230,7 @@ body {
 <body class="not-in-queue">
 
 <div class="player-bar">Spiller: <span id="player-name">...</span></div>
+<div class="machine-bar"><span id="machine-name">…</span><a href="/">Bytt maskin</a></div>
 
 <div class="join-panel" id="join-panel">
   <div id="join-text">Én spiller om gangen – still deg i kø, så får du beskjed når det er din tur.</div>
@@ -240,6 +256,10 @@ body {
 <script src="/socket.io/socket.io.js"></script>
 <script>
 const socket = io();
+
+// Maskinen spilleren vil spille (fra QR-koden / hovedsiden). Uten maskin: tilbake til hovedsiden.
+const machineId = new URLSearchParams(location.search).get('maskin');
+if (!machineId) location.replace('/');
 
 // Fast klient-id, så serveren kjenner oss igjen hvis tilkoblingen faller ut.
 // crypto.randomUUID finnes bare på https/localhost, derfor reserveløsning.
@@ -271,6 +291,7 @@ const leaveBtn = document.getElementById('leave-btn');
 let myId = null;       // offentlig id fra serveren
 let wasMyTurn = false;
 let wasInQueue = false;
+let machineSwitchSent = false;
 
 function setStatus(text, color) {
   if (statusEl.textContent !== text) statusEl.textContent = text;
@@ -284,8 +305,16 @@ socket.on('connect', () => {
 
 socket.on('you', (data) => { myId = data.id; });
 
+socket.on('machines', (list) => {
+  const m = list.find(x => x.id === machineId);
+  if (!m) { location.replace('/'); return; }
+  document.getElementById('machine-name').textContent = `${m.icon} ${m.name}`;
+  document.documentElement.style.setProperty('--accent', (m.colors && m.colors.accent) || '#ffe66d');
+  document.title = `${m.name} – kontroller`;
+});
+
 joinBtn.addEventListener('click', () => {
-  socket.emit('join-queue');
+  socket.emit('join-queue', { machine: machineId });
   if (navigator.vibrate) navigator.vibrate(20);
 });
 leaveBtn.addEventListener('click', () => socket.emit('leave-queue'));
@@ -300,6 +329,12 @@ socket.on('state', (state) => {
   const pos = state.players.findIndex(p => p.id === myId);
   const inQueue = pos !== -1;
   const myTurn = state.currentPlayer === myId;
+
+  // Står i kø for en annen maskin (valgt på nytt fra hovedsiden): bytt til denne
+  if (inQueue && !myTurn && state.players[pos].machine !== machineId && !machineSwitchSent) {
+    machineSwitchSent = true;
+    socket.emit('join-queue', { machine: machineId });
+  }
   document.body.classList.toggle('not-in-queue', !inQueue);
   document.body.classList.toggle('waiting', inQueue && !myTurn);
   document.body.classList.toggle('my-turn', myTurn);
@@ -321,7 +356,7 @@ socket.on('state', (state) => {
 
   if (!inQueue) {
     const current = state.players.find(p => p.id === state.currentPlayer);
-    setStatus(current ? `🎮 ${current.name} spiller nå · ${state.players.length} i kø` : '✓ Ledig – ingen spiller nå', '#aaa');
+    setStatus(current ? `🎮 ${current.name} spiller nå · ${state.players.length - 1} venter` : '✓ Ledig – ingen spiller nå', '#aaa');
   } else if (myTurn) {
     const score = (state.scores[myId] || 0).toLocaleString('nb-NO');
     const ballNo = state.ballsPerGame - state.ballsLeft + 1;

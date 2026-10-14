@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8">
+<title>Pinball</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+body { display: flex; align-items: center; justify-content: center; }
+canvas { display: block; }
+
+#sound-btn {
+  position: absolute; top: 14px; left: 14px; z-index: 20;
+  padding: 10px 16px; border-radius: 999px; border: 2px solid var(--accent, #ffb732);
+  background: rgba(0, 0, 0, 0.75); color: var(--accent, #ffcc55); font-size: 15px; font-weight: bold;
+  cursor: pointer; box-shadow: 0 0 18px rgba(255, 255, 255, 0.15);
+}
+
+#launch-btn {
+  position: absolute; bottom: 20px; right: 15px; z-index: 20;
+  width: 84px; height: 84px; border-radius: 50%; font-size: 15px;
+  background: radial-gradient(circle, #e94560, #c23152);
+  color: #fff; border: 3px solid #ff6b81; cursor: pointer;
+  box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
+  touch-action: none; user-select: none;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<button id="sound-btn">🔊 Klikk for lyd</button>
+<button id="launch-btn">🚀 Hold<br>og slipp</button>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/engine/sound.js"></script>
+<script src="/engine/renderer.js"></script>
+<script>
+// Selve maskinen: tegner brettet med temaet til maskinen som er i bruk.
+// Alt utseende ligger i public/machines/<id>/theme.js, all tegning i engine/renderer.js.
+const canvas = document.getElementById('game');
+const socket = io();
+PinballRenderer.init(canvas);
+
+/* ══════════════════════ LYD ══════════════════════ */
+const soundBtn = document.getElementById('sound-btn');
+PinballSound.onChange(on => { soundBtn.style.display = on ? 'none' : 'block'; });
+soundBtn.addEventListener('click', PinballSound.init);
+window.addEventListener('pointerdown', PinballSound.init);
+window.addEventListener('keydown', PinballSound.init);
+const playSound = (type, e) => PinballSound.play(PinballRenderer.theme.sounds, type, e);
+
+/* ══════════════════════ TEMA ══════════════════════ */
+// ?tema=<id> i adressen låser temaet (for å forhåndsvise en maskin)
+const forcedTheme = new URLSearchParams(location.search).get('tema');
+const themeLoads = {};
+let currentThemeId = null;
+
+function loadTheme(id) {
+  if (!themeLoads[id]) {
+    themeLoads[id] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `/machines/${encodeURIComponent(id)}/theme.js`;
+      s.onload = () => PinballThemes[id] ? resolve(PinballThemes[id]) : reject(new Error('Tema mangler: ' + id));
+      s.onerror = () => reject(new Error('Fant ikke tema: ' + id));
+      document.head.appendChild(s);
+    });
+  }
+  return themeLoads[id];
+}
+
+function useTheme(id) {
+  if (!id || id === currentThemeId) return;
+  currentThemeId = id;
+  loadTheme(id)
+    .then(theme => { if (currentThemeId === id) PinballRenderer.setTheme(theme); })
+    .catch(err => console.error(err.message));
+}
+
+/* ══════════════════════ TILSTAND ══════════════════════ */
+let state = {
+  players: [], scores: {}, currentPlayer: null, ballsLeft: 0, ballsPerGame: 3, gameOver: null,
+  launchCountdown: null, machine: null,
+  ball: { x: 670, y: 1180, r: 9, ready: true },
+  flippers: { left: { angle: 0.5, pressed: false }, right: { angle: Math.PI - 0.5, pressed: false } },
+  bumpers: [], slingFlash: [0, 0], plunger: 0, events: [],
+};
+
+socket.on('layout', (data) => PinballRenderer.setLayout(data));
+
+socket.on('state', (data) => {
+  useTheme(forcedTheme || data.machine || 'gard');
+  for (const e of data.events || []) playSound(e.type, e);
+  PinballRenderer.handleEvents(data);
+  for (const side of ['left', 'right']) {
+    const was = state.flippers[side].pressed, now = data.flippers[side].pressed;
+    if (now && !was) playSound('flipper');
+    if (!now && was) playSound('flipperDown');
+  }
+  state = data;
+  // Storskjermen kan bare skyte ut ballen i fritt spill (når ingen står i kø)
+  launchBtn.style.display = state.ball.ready && !state.currentPlayer ? 'block' : 'none';
+});
+
+function drawGame(now) {
+  PinballRenderer.frame(state, now);
+  requestAnimationFrame(drawGame);
+}
+
+/* ══════════════════════ KONTROLLER ══════════════════════ */
+// Oppskyting: hold inne for å trekke fjæra, slipp for å skyte
+const launchBtn = document.getElementById('launch-btn');
+let pulling = false;
+function startPull() { if (!pulling) { pulling = true; socket.emit('plunger-pull'); } }
+function release() { if (pulling) { pulling = false; socket.emit('ball-launch'); } }
+launchBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); PinballSound.init(); startPull(); });
+launchBtn.addEventListener('pointerup', release);
+launchBtn.addEventListener('pointerleave', release);
+
+// Tastatur: piltaster/Z/M (eller A/D) for flipperne, hold mellomrom for å skyte ut ballen
+const keyMap = { ArrowLeft: 'flip-left', z: 'flip-left', a: 'flip-left', ArrowRight: 'flip-right', m: 'flip-right', d: 'flip-right' };
+const keyOf = (e) => e.key.length === 1 ? e.key.toLowerCase() : e.key;
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const key = keyOf(e);
+  if (keyMap[key]) socket.emit(keyMap[key], true);
+  if (key === ' ' || key === 'Enter') { e.preventDefault(); startPull(); }
+});
+document.addEventListener('keyup', (e) => {
+  const key = keyOf(e);
+  if (keyMap[key]) socket.emit(keyMap[key], false);
+  if (key === ' ' || key === 'Enter') release();
+});
+
+PinballRenderer.resize();
+window.addEventListener('resize', PinballRenderer.resize);
+requestAnimationFrame(drawGame);
+</script>
+</body>
+</html>

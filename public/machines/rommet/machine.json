@@ -1,0 +1,12 @@
+{
+  "name": "RomPengBall",
+  "tagline": "Planeter, kometer og null tyngdekraft (nesten)",
+  "icon": "🚀",
+  "order": 2,
+  "colors": {
+    "bg": "#070a1f",
+    "bg2": "#2a0d4a",
+    "accent": "#5ef2ff",
+    "text": "#e6ecff"
+  }
+}

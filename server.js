@@ -13,33 +13,66 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, 'public')));
 
 const BALLS_PER_GAME = 3;
+
+// Maskinene finnes som mapper i public/machines/<id>/ med machine.json (navn, farger …)
+// og theme.js (utseende og lyd). Fysikken er lik for alle. Bare ett brett: maskinen bytter
+// til den som har tur sin maskin.
+const MACHINES_DIR = path.join(__dirname, 'public', 'machines');
+const machines = loadMachines();
+const DEFAULT_MACHINE = machines[0].id;
+
+function loadMachines() {
+    const list = [];
+    for (const id of fs.readdirSync(MACHINES_DIR)) {
+        if (!/^[a-z0-9-]+$/.test(id)) continue;
+        try {
+            const info = JSON.parse(fs.readFileSync(path.join(MACHINES_DIR, id, 'machine.json'), 'utf8'));
+            list.push({ id, name: info.name || id, tagline: info.tagline || '', icon: info.icon || '🎰',
+                order: info.order || 99, colors: info.colors || {} });
+        } catch (e) {
+            console.error(`Hopper over maskin "${id}":`, e.message);
+        }
+    }
+    if (!list.length) throw new Error('Fant ingen maskiner i ' + MACHINES_DIR);
+    return list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
+
+function validMachine(id) {
+    return machines.some(m => m.id === id) ? id : null;
+}
 const LAUNCH_TIMEOUT_MS = 30000;   // så lenge ballen kan ligge klar før turen går videre
 const RECONNECT_GRACE_MS = 30000;  // så lenge en frakoblet spiller beholder plassen sin
 
 // Spillere identifiseres med en fast klient-id fra mobilens localStorage, så de beholder
 // plass og poeng om skjermen låses eller nettet faller ut et øyeblikk. Klient-id-en fungerer
 // som innloggingsnøkkel og sendes aldri ut; andre klienter ser bare den offentlige id-en.
-let players = {};    // klient-id -> { id (offentlig), name, socketId, disconnectedAt }
+let players = {};    // klient-id -> { id (offentlig), name, machine, socketId, disconnectedAt }
 let scores = {};     // offentlig id -> poeng i nåværende spill
 let queue = [];      // klient-id-er i turrekkefølge; queue[0] har tur
-let game = { playerId: null, ballsLeft: BALLS_PER_GAME }; // playerId er klient-id
-let lastGame = null; // { name, score } – vises som "game over" på skjermen
+let game = { playerId: null, ballsLeft: BALLS_PER_GAME, machine: DEFAULT_MACHINE }; // playerId er klient-id
+let lastGame = null; // { name, score, machine } – vises som "game over" på skjermen
 let plungerPullStart = null; // når fjæra begynte å trekkes (ms), eller null
 let readySince = null;       // når ballen ble lagt klar for spilleren som har tur (ms), eller null
 let soundEvents = [];        // lydhendelser som sendes med neste state
 
-// Topplista lagres i en JSON-fil så den overlever omstart av serveren.
+// Topplistene (én per maskin) lagres i en JSON-fil så de overlever omstart av serveren:
+//   { "<maskin-id>": [{ name, score }, …], … }
 // På Render må HIGHSCORE_FILE peke til en persistent disk, ellers nullstilles den ved ny deploy.
 const HIGHSCORE_FILE = process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json');
 let highScores = loadHighScores();
 
 function loadHighScores() {
+    const valid = (list) => Array.isArray(list)
+        ? list.filter(h => h && typeof h.name === 'string' && Number.isFinite(h.score)).slice(0, 10) : [];
+    let data = {};
     try {
-        const list = JSON.parse(fs.readFileSync(HIGHSCORE_FILE, 'utf8'));
-        return Array.isArray(list) ? list.filter(h => typeof h.name === 'string' && Number.isFinite(h.score)).slice(0, 10) : [];
-    } catch (e) {
-        return [];
-    }
+        data = JSON.parse(fs.readFileSync(HIGHSCORE_FILE, 'utf8'));
+    } catch (e) { /* ingen fil ennå */ }
+    // Gammelt format (én liste) var fra før det fantes flere maskiner – den hører til gården
+    if (Array.isArray(data)) data = { gard: data };
+    const result = {};
+    for (const m of machines) result[m.id] = valid(data && data[m.id]);
+    return result;
 }
 
 function saveHighScores() {
@@ -61,16 +94,26 @@ function addHighScore(cid) {
     const p = players[cid];
     const score = p ? scores[p.id] || 0 : 0;
     if (score <= 0) return;
-    highScores.push({ name: p.name, score });
-    highScores.sort((a, b) => b.score - a.score);
-    highScores = highScores.slice(0, 10);
+    const list = highScores[game.machine];
+    list.push({ name: p.name, score });
+    list.sort((a, b) => b.score - a.score);
+    highScores[game.machine] = list.slice(0, 10);
     saveHighScores();
+    io.emit('machines', machineList());
+}
+
+// Maskinoversikt til hovedsiden og poengtavla: navn, farger og topp 5
+function machineList() {
+    return machines.map(m => ({ ...m, highScores: highScores[m.id].slice(0, 5) }));
 }
 
 function startTurn(cid) {
     game.playerId = cid || null;
     game.ballsLeft = BALLS_PER_GAME;
-    if (cid) scores[players[cid].id] = 0;
+    if (cid) {
+        scores[players[cid].id] = 0;
+        game.machine = players[cid].machine;
+    }
     physics.setFlipper('left', false);
     physics.setFlipper('right', false);
     physics.resetBall();
@@ -90,7 +133,7 @@ function endGame() {
     const cid = game.playerId;
     if (cid && players[cid]) {
         addHighScore(cid);
-        lastGame = { name: players[cid].name, score: scores[players[cid].id] || 0, at: Date.now() };
+        lastGame = { name: players[cid].name, score: scores[players[cid].id] || 0, machine: game.machine, at: Date.now() };
         soundEvents.push({ type: 'gameover' });
     }
     queue = queue.filter(q => q !== cid);
@@ -113,6 +156,7 @@ function canControl(socket) {
 
 io.on('connection', (socket) => {
     socket.emit('layout', physics.layout);
+    socket.emit('machines', machineList());
 
     // Mobilen presenterer seg med sin faste klient-id. Er spilleren kjent fra før, er dette
     // en gjenoppkobling, og spilleren beholder plassen i køen.
@@ -132,15 +176,19 @@ io.on('connection', (socket) => {
             p.disconnectedAt = null;
             p.name = name;
         } else {
-            p = players[cid] = { id: crypto.randomUUID(), name, socketId: socket.id, disconnectedAt: null };
+            p = players[cid] = { id: crypto.randomUUID(), name, machine: DEFAULT_MACHINE, socketId: socket.id, disconnectedAt: null };
         }
         socket.data.clientId = cid;
         socket.emit('you', { id: p.id });
     });
 
-    socket.on('join-queue', () => {
+    // Still meg i kø for en maskin. Står spilleren allerede i kø (og venter), byttes bare maskinen.
+    socket.on('join-queue', (data) => {
         const cid = socket.data.clientId;
-        if (!cid || !players[cid] || queue.includes(cid)) return;
+        if (!cid || !players[cid]) return;
+        const machine = validMachine(data && data.machine);
+        if (machine && game.playerId !== cid) players[cid].machine = machine;
+        if (queue.includes(cid)) return;
         queue.push(cid);
         if (!game.playerId) startTurn(cid);
     });
@@ -212,11 +260,11 @@ setInterval(() => {
     };
     for (const i of events.hits) {
         addScore(physics.bumpers[i].score);
-        soundEvents.push({ type: 'bumper', i });
+        soundEvents.push({ type: 'bumper', i, points: physics.bumpers[i].score });
     }
     for (const i of events.slings) {
         addScore(physics.SLING_SCORE);
-        soundEvents.push({ type: 'sling', i });
+        soundEvents.push({ type: 'sling', i, points: physics.SLING_SCORE });
     }
 
     if (events.drained) {
@@ -242,7 +290,8 @@ function buildGameState() {
     const f = physics.flippers;
     const current = game.playerId ? players[game.playerId] : null;
     return {
-        players: queue.map(cid => ({ id: players[cid].id, name: players[cid].name, away: !!players[cid].disconnectedAt })),
+        players: queue.map(cid => ({ id: players[cid].id, name: players[cid].name, machine: players[cid].machine, away: !!players[cid].disconnectedAt })),
+        machine: game.machine,
         scores,
         currentPlayer: current ? current.id : null,
         ballsLeft: game.ballsLeft,
@@ -250,7 +299,7 @@ function buildGameState() {
         // Sekunder igjen før turen går videre hvis ballen ikke skytes ut (null = ingen nedtelling)
         launchCountdown: readySince === null ? null : Math.max(0, Math.ceil((LAUNCH_TIMEOUT_MS - (Date.now() - readySince)) / 1000)),
         // "Game over" vises noen sekunder etter at et spill er ferdig
-        gameOver: lastGame && Date.now() - lastGame.at < 4000 ? { name: lastGame.name, score: lastGame.score } : null,
+        gameOver: lastGame && Date.now() - lastGame.at < 4000 ? { name: lastGame.name, score: lastGame.score, machine: lastGame.machine } : null,
         ball: { x: physics.ball.x, y: physics.ball.y, r: physics.ball.r, ready: physics.ball.ready },
         flippers: {
             left: { angle: f.left.angle, pressed: f.left.pressed },
@@ -260,7 +309,6 @@ function buildGameState() {
         slingFlash: physics.slingshots.map(s => s.flash),
         plunger: plungerPower(),
         events: soundEvents,
-        highScores,
     };
 }
 
