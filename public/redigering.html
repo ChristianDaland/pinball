@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pinball – rediger brett</title>
+<style>
+/* Redigering av brettene: velg element i menyen til venstre, klikk på brettet for å plassere,
+   dra for å flytte, dra punktene for å endre form. Brettet lagres i databasen. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: #12131a;
+  color: #e8e8ee;
+  font: 14px 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #1b1d27;
+  border-bottom: 1px solid #2c2f3d;
+  flex-wrap: wrap;
+}
+header h1 { font-size: 17px; margin-right: 6px; }
+header .spacer { flex: 1; }
+.status { color: #aab; font-size: 13px; min-width: 200px; }
+.status.dirty { color: #ffcc55; }
+.status.error { color: #ff8a8a; }
+
+button, select, input {
+  font: inherit;
+  color: inherit;
+}
+button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #3a3e52;
+  background: #262938;
+  cursor: pointer;
+}
+button:hover { background: #31354a; }
+button.primary { background: #2f7d4f; border-color: #3fa868; }
+button.primary:hover { background: #379259; }
+button.active { background: #4a3f8f; border-color: #7a6bd6; }
+button:disabled { opacity: 0.4; cursor: default; }
+select, input[type=text], input[type=number] {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #3a3e52;
+  background: #0f1017;
+}
+input[type=number] { width: 90px; }
+input[type=color] { width: 44px; height: 28px; border: none; background: none; }
+
+.main { flex: 1; display: flex; min-height: 0; }
+
+aside {
+  width: 240px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 10px;
+  background: #171922;
+  border-right: 1px solid #2c2f3d;
+}
+aside.right { width: 280px; border-right: none; border-left: 1px solid #2c2f3d; }
+aside h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8a8fa8;
+  margin: 12px 0 6px;
+}
+aside h2:first-child { margin-top: 0; }
+
+.palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.palette button { text-align: left; padding: 8px; font-size: 13px; }
+.palette button .ico { font-size: 16px; margin-right: 4px; }
+
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.field label { color: #c4c7d6; }
+.hint { color: #8a8fa8; font-size: 12px; line-height: 1.45; margin: 6px 0; }
+
+.list { display: flex; flex-direction: column; gap: 2px; }
+.list div { padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.list div:hover { background: #262938; }
+.list div.sel { background: #4a3f8f; }
+
+.stage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  background: #0b0c10;
+}
+#wrap { position: relative; }
+#wrap canvas { display: block; }
+#overlay { position: absolute; left: 0; top: 0; cursor: crosshair; }
+#overlay.select { cursor: default; }
+#overlay.drag { cursor: grabbing; }
+.coords { position: absolute; left: 10px; bottom: 8px; color: #8a8fa8; font-size: 12px; }
+.playhint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75);
+  padding: 6px 14px; border-radius: 999px; font-size: 13px; display: none; }
+body.testing .playhint { display: block; }
+
+.report { white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #0f1017; border-radius: 8px; padding: 8px; display: none; }
+.report.show { display: block; }
+.report .bad { color: #ff8a8a; }
+.report .ok { color: #7fe0a0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✏️ Rediger brett</h1>
+  <select id="machine"></select>
+  <span class="status" id="status">Laster…</span>
+  <span class="spacer"></span>
+  <button id="btn-test">▶ Prøv brettet</button>
+  <button id="btn-check">🔍 Sjekk brettet</button>
+  <button id="btn-download">⬇ Last ned board.json</button>
+  <button id="btn-undo-save" title="Går tilbake til forrige lagrede versjon">↶ Angre siste lagring</button>
+  <button id="btn-standard" title="Bruk brettet fra koden (board.json) igjen">Tilbakestill til standard</button>
+  <button id="btn-save" class="primary">💾 Lagre</button>
+</header>
+
+<div class="main">
+  <aside>
+    <h2>Verktøy</h2>
+    <div class="palette">
+      <button data-tool="select" class="active"><span class="ico">👆</span>Velg / flytt</button>
+      <button id="btn-delete" title="Delete-tasten"><span class="ico">🗑️</span>Slett valgt</button>
+    </div>
+    <h2>Legg til (klikk så på brettet)</h2>
+    <div class="palette" id="palette"></div>
+    <h2>Brettet</h2>
+    <div class="field"><label>Kickback</label>
+      <select id="kickback"><option value="">ingen</option><option>venstre</option><option>høyre</option><option>begge</option></select></div>
+    <div class="field"><label>Ball save (s)</label><input type="number" data-rule="ballSaveSeconds" min="0" max="30"></div>
+    <div class="field"><label>Låser til multiball</label><input type="number" data-rule="locksForMultiball" min="1" max="10"></div>
+    <div class="field"><label>Jackpot</label><input type="number" data-rule="jackpotScore" min="0" step="500"></div>
+    <div class="field"><label>Ramper til ekstra ball</label><input type="number" data-rule="rampsForExtraBall" min="0" max="50"></div>
+    <div class="field"><label>Multiplikatorer</label><input type="text" id="multipliers" placeholder="1,2,3,5" style="width:90px"></div>
+    <div class="field"><label>Fest til rutenett (10 px)</label><input type="checkbox" id="snap" checked></div>
+    <p class="hint">Flippere, oppskytingskanal, porten og ytterveggene er like på alle maskiner og kan ikke flyttes.</p>
+  </aside>
+
+  <div class="stage" id="stage">
+    <div id="wrap">
+      <canvas id="game"></canvas>
+      <canvas id="overlay" class="select"></canvas>
+    </div>
+    <div class="coords" id="coords"></div>
+    <div class="playhint">A/← og D/→ = flippere · hold mellomrom = skyt ut · Esc = stopp</div>
+  </div>
+
+  <aside class="right">
+    <h2 id="props-title">Valgt element</h2>
+    <div id="props"><p class="hint">Klikk på et element på brettet for å endre det, eller velg et nytt element i menyen.</p></div>
+    <div class="report" id="report"></div>
+    <h2>Alle elementer</h2>
+    <div class="list" id="list"></div>
+    <h2>Tips</h2>
+    <p class="hint">
+      • Dra et element for å flytte det, dra de hvite punktene for å endre form.<br>
+      • Piltastene flytter valgt element (Shift = 10 px). Ctrl+Z angrer.<br>
+      • «Speil» lager en kopi på andre siden av brettet.<br>
+      • Legg en kloss bak mål som står inntil en vegg, så ballen ikke setter seg fast.<br>
+      • Bruk «Sjekk brettet» før du lagrer. Lagrede brett brukes fra neste spillers tur.
+    </p>
+  </aside>
+</div>
+
+<script src="/engine/sound.js"></script>
+<script src="/engine/renderer.js"></script>
+<script src="/engine/physics.js"></script>
+<script src="/engine/rules.js"></script>
+<script>
+const Physics = window.PinballPhysics;
+const BW = 800, BH = 1300, MID = 350;
+const $ = (id) => document.getElementById(id);
+const gameCanvas = $('game'), overlay = $('overlay'), octx = overlay.getContext('2d');
+PinballRenderer.init(gameCanvas);
+document.body.style.background = '#12131a';
+
+let machineId = null;
+let board = {};          // brettet som redigeres (samme format som board.json)
+let dirty = false;
+let selected = null;     // { type, index }
+let tool = 'select';
+let history = [];        // lokale angre-steg (Ctrl+Z)
+let testing = false;
+let checkMarks = [];     // steder der "Sjekk brettet" fant en ball som sto fast
+
+/* ══════════════════════ ELEMENTTYPER ══════════════════════ */
+// Mal for nye elementer, plassert rundt punktet (x, y) man klikket på
+const TYPES = {
+  popBumpers: { name: 'Pop bumper', ico: '🔴', make: (x, y) => ({ x, y, r: 28, score: 100, icon: '⭐' }) },
+  bumpers:    { name: 'Bumper', ico: '🟣', make: (x, y) => ({ x, y, r: 24, score: 75 }) },
+  slingshots: { name: 'Slingshot', ico: '📐', make: (x, y) => ({ a: [x - 65, y - 81], b: [x + 11, y + 29], c: [x + 55, y + 53], score: 10 }) },
+  kloss:      { name: 'Kloss', ico: '🧱', list: 'walls', make: (x, y) => ({ points: [[x - 30, y - 30], [x + 30, y], [x - 30, y + 30]], closed: true }) },
+  skinne:     { name: 'Skinne', ico: '➖', list: 'walls', make: (x, y) => ({ points: [[x - 40, y], [x + 40, y]] }) },
+  rollovers:  { name: 'Rollovers', ico: '🔤', single: true, make: (x, y) => ({ y, lanes: [x - 80, x, x + 80], guides: [x - 120, x - 40, x + 40, x + 120], guideTop: y - 35, guideBottom: y + 25, letters: 'ABC', score: 50 }) },
+  dropTargets:{ name: 'Drop targets', ico: '🎯', make: (x, y) => ({ from: [x - 50, y], to: [x + 50, y], count: 3, score: 150 }) },
+  standups:   { name: 'Standup', ico: '▮', make: (x, y) => ({ from: [x - 12, y - 26], to: [x + 12, y + 26], score: 100 }) },
+  spinners:   { name: 'Spinner', ico: '🌀', make: (x, y) => ({ from: [x - 30, y], to: [x + 30, y], score: 25 }) },
+  scoops:     { name: 'Scoop', ico: '🕳️', make: (x, y) => ({ x, y, score: 250, ejectAngle: 110, ejectSpeed: 9 }) },
+  ramps:      { name: 'Rampe', ico: '🎢', make: (x, y) => ({ entrance: [[x - 20, y], [x + 20, y]], path: [[x, y - 30], [x - 50, y - 90], [Math.max(100, x - 120), y - 40], [100, 860], [119.4, 898.6]], score: 500 }) },
+};
+// Hvilken liste i board.json hver type hører til (kloss og skinne er begge "walls")
+const listOf = (type) => TYPES[type] ? (TYPES[type].list || type) : type;
+
+// Felter i panelet for hver liste
+const FIELDS = {
+  popBumpers: [['score', 'Poeng', 'number'], ['r', 'Radius', 'number'], ['kick', 'Spark (7)', 'number'], ['icon', 'Ikon (emoji)', 'text'], ['color', 'Farge', 'color'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  bumpers:    [['score', 'Poeng', 'number'], ['r', 'Radius', 'number'], ['kick', 'Spark (4)', 'number'], ['icon', 'Ikon (emoji)', 'text'], ['color', 'Farge', 'color'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  slingshots: [['score', 'Poeng', 'number'], ['kick', 'Spark (6)', 'number'], ['speil', 'Speil', 'checkbox']],
+  walls:      [['closed', 'Lukket (kloss)', 'checkbox'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  rollovers:  [['letters', 'Bokstaver', 'text'], ['score', 'Poeng', 'number']],
+  dropTargets:[['count', 'Antall mål', 'number'], ['score', 'Poeng per mål', 'number'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  standups:   [['score', 'Poeng', 'number'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  spinners:   [['score', 'Poeng per halv runde', 'number'], ['speil', 'Speil', 'checkbox'], ['_info', 'Navn/notat', 'text']],
+  scoops:     [['score', 'Poeng', 'number'], ['ejectAngle', 'Utkast-vinkel (°)', 'number'], ['ejectSpeed', 'Utkast-fart', 'number'], ['_info', 'Navn/notat', 'text']],
+  ramps:      [['score', 'Poeng', 'number'], ['minSpeed', 'Minste fart inn (8)', 'number'], ['_info', 'Navn/notat', 'text']],
+};
+const LIST_NAMES = { popBumpers: 'Pop bumper', bumpers: 'Bumper', slingshots: 'Slingshot', walls: 'Vegg', rollovers: 'Rollovers',
+  dropTargets: 'Drop targets', standups: 'Standup', spinners: 'Spinner', scoops: 'Scoop', ramps: 'Rampe' };
+
+const P = (p) => ({ x: p[0], y: p[1] });
+
+// Alle elementer i brettet, med punkter som kan dras ("handles") og hvordan de flyttes
+function elements() {
+  const out = [];
+  const add = (type, index, ref) => out.push({ type, index, ref });
+  for (const type of ['walls', 'slingshots', 'dropTargets', 'standups', 'spinners', 'scoops', 'ramps', 'bumpers', 'popBumpers']) {
+    (board[type] || []).forEach((ref, i) => add(type, i, ref));
+  }
+  if (board.rollovers) add('rollovers', 0, board.rollovers);
+  return out;
+}
+
+function elementName(e) {
+  const n = LIST_NAMES[e.type];
+  if (e.type === 'walls') return (e.ref.closed ? 'Kloss' : 'Skinne') + (e.ref._info ? ` – ${e.ref._info}` : ` ${e.index + 1}`);
+  if (e.type === 'rollovers') return `Rollovers «${e.ref.letters || ''}»`;
+  return `${n}${e.ref.icon ? ' ' + e.ref.icon : ''}${e.ref._info ? ' – ' + e.ref._info : ' ' + (e.index + 1)}`;
+}
+
+// Punktene man kan dra i, som [x, y]-par med en set-funksjon
+function handles(e) {
+  const r = e.ref, h = [];
+  const pt = (arr, i) => ({ x: arr[i][0], y: arr[i][1], set: (x, y) => { arr[i] = [x, y]; } });
+  switch (e.type) {
+    case 'walls': r.points.forEach((p, i) => h.push(pt(r.points, i))); break;
+    case 'slingshots': for (const k of ['a', 'b', 'c']) h.push({ x: r[k][0], y: r[k][1], set: (x, y) => { r[k] = [x, y]; } }); break;
+    case 'dropTargets': case 'standups': case 'spinners':
+      for (const k of ['from', 'to']) h.push({ x: r[k][0], y: r[k][1], set: (x, y) => { r[k] = [x, y]; } }); break;
+    case 'ramps':
+      r.entrance.forEach((p, i) => h.push(pt(r.entrance, i)));
+      r.path.forEach((p, i) => h.push({ ...pt(r.path, i), pathIndex: i }));
+      break;
+    case 'popBumpers': case 'bumpers':
+      h.push({ x: r.x + r.r, y: r.y, set: (x) => { r.r = Math.max(8, Math.min(80, Math.round(x - r.x))); } });
+      break;
+    case 'scoops': {
+      const a = (r.ejectAngle || 110) * Math.PI / 180;
+      h.push({ x: r.x + Math.cos(a) * 50, y: r.y + Math.sin(a) * 50, set: (x, y) => { r.ejectAngle = Math.round(Math.atan2(y - r.y, x - r.x) * 180 / Math.PI); } });
+      break;
+    }
+    case 'rollovers':
+      r.lanes.forEach((x, i) => h.push({ x, y: r.y, set: (nx) => { r.lanes[i] = nx; } }));
+      r.guides.forEach((x, i) => h.push({ x, y: r.guideTop, set: (nx) => { r.guides[i] = nx; } }));
+      break;
+  }
+  return h;
+}
+
+// Flytter hele elementet
+function moveElement(e, dx, dy) {
+  const r = e.ref;
+  const mv = (p) => [p[0] + dx, p[1] + dy];
+  switch (e.type) {
+    case 'walls': r.points = r.points.map(mv); break;
+    case 'slingshots': r.a = mv(r.a); r.b = mv(r.b); r.c = mv(r.c); break;
+    case 'dropTargets': case 'standups': case 'spinners': r.from = mv(r.from); r.to = mv(r.to); break;
+    case 'ramps': r.entrance = r.entrance.map(mv); r.path = r.path.map(mv); break;
+    case 'rollovers':
+      r.y += dy; r.guideTop += dy; r.guideBottom += dy;
+      r.lanes = r.lanes.map(x => x + dx); r.guides = r.guides.map(x => x + dx); break;
+    default: r.x += dx; r.y += dy;
+  }
+}
+
+function distToSeg(px, py, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, l = dx * dx + dy * dy;
+  let t = l ? ((px - a.x) * dx + (py - a.y) * dy) / l : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - a.x - t * dx, py - a.y - t * dy);
+}
+function inPoly(px, py, pts) {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    if ((pts[i].y > py) !== (pts[j].y > py) && px < (pts[j].x - pts[i].x) * (py - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x) c = !c;
+  }
+  return c;
+}
+function nearPolyline(px, py, pts, closed, tol) {
+  const n = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < n; i++) if (distToSeg(px, py, pts[i], pts[(i + 1) % pts.length]) < tol) return true;
+  return false;
+}
+
+// Treffer punktet elementet? (speilede kopier teller også)
+function hits(e, x, y) {
+  const r = e.ref;
+  const test = (mx) => {
+    const X = mx ? 2 * MID - x : x;
+    switch (e.type) {
+      case 'walls': { const pts = r.points.map(P); return (r.closed && inPoly(X, y, pts)) || nearPolyline(X, y, pts, r.closed, 8); }
+      case 'slingshots': return inPoly(X, y, [P(r.a), P(r.b), P(r.c)]);
+      case 'dropTargets': case 'standups': case 'spinners': return distToSeg(X, y, P(r.from), P(r.to)) < 10;
+      case 'ramps': return nearPolyline(X, y, r.path.map(P), false, 10) || distToSeg(X, y, P(r.entrance[0]), P(r.entrance[1])) < 10;
+      case 'rollovers': return Math.abs(y - r.y) < 30 && X > Math.min(...r.guides) - 5 && X < Math.max(...r.guides) + 5;
+      case 'scoops': return Math.hypot(X - r.x, y - r.y) < 22;
+      default: return Math.hypot(X - r.x, y - r.y) < (r.r || 25) + 4;
+    }
+  };
+  return test(false) || (r.speil && test(true));
+}
+
+/* ══════════════════════ BRETTET OG TEGNING ══════════════════════ */
+let rules = null;
+function rebuild() {
+  try {
+    Physics.loadBoard(board);
+  } catch (err) {
+    setStatus('Feil i brettet: ' + err.message, 'error');
+    return;
+  }
+  rules = PinballRules.createRules(Physics);
+  rules.setBoardRules(board.rules);
+  PinballRenderer.setLayout(Physics.layout);
+  renderList();
+}
+
+let testScore = 0, testBalls = 3, testOver = false, plungerStart = null, events = [];
+function buildState() {
+  const f = Physics.flippers;
+  const now = performance.now();
+  const ballState = (b) => ({ x: b.x, y: b.y, r: b.r, ready: b.ready, held: b.held, onRamp: !!b.ramp });
+  return {
+    players: testing ? [{ id: 'test', name: 'Prøvespill' }] : [], scores: { test: testScore },
+    currentPlayer: testing ? 'test' : null, ballsLeft: testBalls, ballsPerGame: 3, gameOver: null, launchCountdown: null,
+    ball: ballState(Physics.ball), balls: Physics.balls.map(ballState),
+    flippers: { left: { angle: f.left.angle, pressed: f.left.pressed }, right: { angle: f.right.angle, pressed: f.right.pressed } },
+    bumpers: Physics.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, score: b.score, type: b.type, color: b.color, icon: b.icon, hitFlash: b.hitFlash })),
+    slingFlash: Physics.slingshots.map(s => s.flash),
+    plunger: plungerStart === null ? 0 : Math.min(1, (now - plungerStart) / 1200),
+    table: Physics.tableState(),
+    events,
+    ...(rules ? rules.state(now) : {}),
+  };
+}
+
+function draw(now) {
+  PinballRenderer.frame(buildState(), now);
+  drawOverlay();
+  requestAnimationFrame(draw);
+}
+
+// Markeringer oppå brettet: omriss av alle elementer, og punkter på det valgte
+function drawOverlay() {
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (testing) return;
+  const s = overlay.width / BW;
+  octx.setTransform(s, 0, 0, s, 0, 0);
+  for (const e of elements()) {
+    const sel = selected && selected.type === e.type && selected.index === e.index;
+    octx.save();
+    octx.strokeStyle = sel ? '#ffe66d' : 'rgba(255,255,255,0.35)';
+    octx.lineWidth = sel ? 2.5 : 1;
+    octx.setLineDash(sel ? [] : [4, 4]);
+    outline(e, false);
+    if (e.ref.speil) { octx.setLineDash([2, 6]); octx.strokeStyle = 'rgba(255,230,109,0.5)'; outline(e, true); }
+    octx.restore();
+    if (sel) {
+      for (const h of handles(e)) {
+        octx.fillStyle = '#fff';
+        octx.strokeStyle = '#000';
+        octx.lineWidth = 1.5;
+        octx.beginPath(); octx.arc(h.x, h.y, 6, 0, Math.PI * 2); octx.fill(); octx.stroke();
+      }
+    }
+  }
+  for (const m of checkMarks) {
+    octx.strokeStyle = '#ff4d4d';
+    octx.lineWidth = 3;
+    octx.beginPath(); octx.arc(m.x, m.y, 18, 0, Math.PI * 2); octx.stroke();
+  }
+}
+
+function outline(e, mirrored) {
+  const r = e.ref;
+  const X = (x) => mirrored ? 2 * MID - x : x;
+  const poly = (pts, closed) => {
+    octx.beginPath();
+    pts.forEach((p, i) => i ? octx.lineTo(X(p[0]), p[1]) : octx.moveTo(X(p[0]), p[1]));
+    if (closed) octx.closePath();
+    octx.stroke();
+  };
+  switch (e.type) {
+    case 'walls': poly(r.points, r.closed); break;
+    case 'slingshots': poly([r.a, r.b, r.c], true); break;
+    case 'dropTargets': case 'standups': case 'spinners': poly([r.from, r.to]); break;
+    case 'ramps': poly(r.entrance); poly(r.path); break;
+    case 'rollovers': {
+      const x0 = Math.min(...r.guides), x1 = Math.max(...r.guides);
+      octx.strokeRect(x0 - 4, r.guideTop - 4, x1 - x0 + 8, r.guideBottom - r.guideTop + 8);
+      break;
+    }
+    case 'scoops': octx.beginPath(); octx.arc(X(r.x), r.y, 22, 0, Math.PI * 2); octx.stroke(); break;
+    default: octx.beginPath(); octx.arc(X(r.x), r.y, (r.r || 25) + 4, 0, Math.PI * 2); octx.stroke();
+  }
+}
+
+function resize() {
+  const stage = $('stage');
+  PinballRenderer.resize(stage.clientWidth - 20, stage.clientHeight - 20);
+  overlay.width = gameCanvas.width;
+  overlay.height = gameCanvas.height;
+  overlay.style.width = gameCanvas.style.width;
+  overlay.style.height = gameCanvas.style.height;
+}
+window.addEventListener('resize', resize);
+
+/* ══════════════════════ MUS OG TASTATUR ══════════════════════ */
+const snap = (v) => $('snap').checked ? Math.round(v / 10) * 10 : Math.round(v * 10) / 10;
+function boardPos(ev) {
+  const rect = overlay.getBoundingClientRect();
+  return { x: (ev.clientX - rect.left) / rect.width * BW, y: (ev.clientY - rect.top) / rect.height * BH };
+}
+
+function remember() {
+  history.push(JSON.stringify(board));
+  if (history.length > 100) history.shift();
+}
+function changed() {
+  dirty = true;
+  checkMarks = [];
+  setStatus('Ulagrede endringer', 'dirty');
+  rebuild();
+  renderProps();
+}
+
+let drag = null;   // { kind: 'handle'|'body', handle, start, last }
+overlay.addEventListener('pointerdown', (ev) => {
+  if (testing) return;
+  const p = boardPos(ev);
+  if (tool !== 'select') {
+    remember();
+    const T = TYPES[tool], list = listOf(tool);
+    const el = T.make(snap(p.x), snap(p.y));
+    if (T.single) {
+      board[list] = el;
+      selected = { type: list, index: 0 };
+    } else {
+      (board[list] = board[list] || []).push(el);
+      selected = { type: list, index: board[list].length - 1 };
+    }
+    setTool('select');
+    changed();
+    return;
+  }
+  const sel = selected && elements().find(e => e.type === selected.type && e.index === selected.index);
+  if (sel) {
+    const h = handles(sel).find(h => Math.hypot(h.x - p.x, h.y - p.y) < 9);
+    if (h) {
+      remember();
+      drag = { kind: 'handle', handle: h, el: sel };
+      selectedHandle = h.pathIndex;
+      overlay.classList.add('drag');
+      overlay.setPointerCapture(ev.pointerId);
+      return;
+    }
+  }
+  const hit = elements().reverse().find(e => hits(e, p.x, p.y));
+  selected = hit ? { type: hit.type, index: hit.index } : null;
+  selectedHandle = undefined;
+  renderProps();
+  renderList();
+  if (hit) {
+    remember();
+    drag = { kind: 'body', el: hit, last: { x: snap(p.x), y: snap(p.y) }, moved: false };
+    overlay.classList.add('drag');
+    overlay.setPointerCapture(ev.pointerId);
+  }
+});
+
+let selectedHandle;
+overlay.addEventListener('pointermove', (ev) => {
+  const p = boardPos(ev);
+  $('coords').textContent = `x ${Math.round(p.x)}  ·  y ${Math.round(p.y)}`;
+  if (!drag) return;
+  if (drag.kind === 'handle') {
+    drag.handle.set(snap(p.x), snap(p.y));
+  } else {
+    const np = { x: snap(p.x), y: snap(p.y) };
+    const dx = np.x - drag.last.x, dy = np.y - drag.last.y;
+    if (!dx && !dy) return;
+    moveElement(drag.el, dx, dy);
+    drag.last = np;
+  }
+  drag.moved = true;
+  dirty = true;
+  setStatus('Ulagrede endringer', 'dirty');
+  rebuild();
+});
+overlay.addEventListener('pointerup', () => {
+  if (drag && !drag.moved && drag.kind === 'body') history.pop();
+  if (drag && drag.moved) { checkMarks = []; renderProps(); }
+  drag = null;
+  overlay.classList.remove('drag');
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (testing) return;
+  if (['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'z') {
+    ev.preventDefault();
+    if (history.length) { board = JSON.parse(history.pop()); selected = null; changed(); }
+    return;
+  }
+  if (ev.key === 'Delete' || ev.key === 'Backspace') { deleteSelected(); ev.preventDefault(); return; }
+  const step = ev.shiftKey ? 10 : 1;
+  const dir = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+  if (dir && selected) {
+    ev.preventDefault();
+    const el = elements().find(e => e.type === selected.type && e.index === selected.index);
+    if (el) { remember(); moveElement(el, dir[0], dir[1]); changed(); }
+  }
+  if (ev.key === 'Escape') { selected = null; setTool('select'); renderProps(); }
+});
+
+function deleteSelected() {
+  if (!selected) return;
+  remember();
+  if (selected.type === 'rollovers') delete board.rollovers;
+  else board[selected.type].splice(selected.index, 1);
+  selected = null;
+  changed();
+}
+$('btn-delete').addEventListener('click', deleteSelected);
+
+/* ══════════════════════ MENY OG PANEL ══════════════════════ */
+const palette = $('palette');
+for (const [key, T] of Object.entries(TYPES)) {
+  const b = document.createElement('button');
+  b.dataset.tool = key;
+  b.innerHTML = `<span class="ico">${T.ico}</span>${T.name}`;
+  palette.appendChild(b);
+}
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  overlay.classList.toggle('select', t === 'select');
+  if (t !== 'select') setStatus(`Klikk på brettet for å plassere: ${TYPES[t].name}`, dirty ? 'dirty' : '');
+}
+
+function renderList() {
+  const box = $('list');
+  box.innerHTML = '';
+  for (const e of elements()) {
+    const d = document.createElement('div');
+    d.textContent = elementName(e);
+    if (selected && selected.type === e.type && selected.index === e.index) d.className = 'sel';
+    d.addEventListener('click', () => { selected = { type: e.type, index: e.index }; renderProps(); renderList(); });
+    box.appendChild(d);
+  }
+}
+
+function renderProps() {
+  const box = $('props');
+  const el = selected && elements().find(e => e.type === selected.type && e.index === selected.index);
+  if (!el) {
+    $('props-title').textContent = 'Valgt element';
+    box.innerHTML = '<p class="hint">Klikk på et element på brettet for å endre det, eller velg et nytt element i menyen.</p>';
+    return;
+  }
+  $('props-title').textContent = elementName(el);
+  box.innerHTML = '';
+  for (const [key, label, kind] of FIELDS[el.type] || []) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const input = document.createElement('input');
+    input.type = kind;
+    if (kind === 'checkbox') input.checked = !!el.ref[key];
+    else if (kind === 'color') input.value = el.ref[key] || '#ff6b6b';
+    else input.value = el.ref[key] === undefined ? '' : el.ref[key];
+    input.addEventListener('change', () => {
+      remember();
+      let v = kind === 'checkbox' ? input.checked : kind === 'number' ? (input.value === '' ? undefined : Number(input.value)) : input.value;
+      if (v === '' || v === false) v = undefined;
+      if (v === undefined) delete el.ref[key]; else el.ref[key] = v;
+      if (el.type === 'rollovers' && key === 'letters') resizeRollovers(el.ref);
+      changed();
+    });
+    row.innerHTML = `<label>${label}</label>`;
+    row.appendChild(input);
+    box.appendChild(row);
+  }
+  if (el.type === 'rollovers') {
+    box.insertAdjacentHTML('beforeend', '<p class="hint">Antall bokstaver = antall baner. Dra de hvite punktene for å flytte baner og skinner.</p>');
+  }
+  if (el.type === 'ramps') {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const add = document.createElement('button');
+    add.textContent = '+ punkt i banen';
+    add.addEventListener('click', () => {
+      remember();
+      const path = el.ref.path, i = selectedHandle !== undefined ? Math.min(selectedHandle, path.length - 2) : path.length - 2;
+      path.splice(i + 1, 0, [(path[i][0] + path[i + 1][0]) / 2, (path[i][1] + path[i + 1][1]) / 2]);
+      changed();
+    });
+    const del = document.createElement('button');
+    del.textContent = '− fjern valgt punkt';
+    del.addEventListener('click', () => {
+      if (selectedHandle === undefined || el.ref.path.length <= 2) return;
+      remember();
+      el.ref.path.splice(selectedHandle, 1);
+      selectedHandle = undefined;
+      changed();
+    });
+    row.append(add, del);
+    box.appendChild(row);
+    box.insertAdjacentHTML('beforeend', '<p class="hint">Ballen kjører inn gjennom inngangen (de to første punktene) mot banens første punkt, og slippes ned ved banens siste punkt. Klikk et punkt i banen for å velge det.</p>');
+  }
+  if (el.type === 'walls') {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const add = document.createElement('button');
+    add.textContent = '+ hjørne';
+    add.addEventListener('click', () => {
+      remember();
+      const pts = el.ref.points, a = pts[pts.length - 1], b = pts[0];
+      pts.push([(a[0] + b[0]) / 2 + 10, (a[1] + b[1]) / 2 + 10]);
+      changed();
+    });
+    const del = document.createElement('button');
+    del.textContent = '− siste hjørne';
+    del.addEventListener('click', () => { if (el.ref.points.length > 2) { remember(); el.ref.points.pop(); changed(); } });
+    row.append(add, del);
+    box.appendChild(row);
+  }
+}
+
+// Endrer antall rollover-baner til antall bokstaver, jevnt fordelt mellom ytterskinnene
+function resizeRollovers(r) {
+  const n = Math.max(1, Math.min(6, (r.letters || '').length || 1));
+  if (n === r.lanes.length) return;
+  const x0 = Math.min(...r.guides), x1 = Math.max(...r.guides), w = (x1 - x0) / n;
+  r.guides = Array.from({ length: n + 1 }, (_, i) => Math.round(x0 + i * w));
+  r.lanes = Array.from({ length: n }, (_, i) => Math.round(x0 + (i + 0.5) * w));
+}
+
+// Brettinnstillinger (kickback og regler)
+$('kickback').addEventListener('change', () => {
+  remember();
+  if ($('kickback').value) board.kickback = $('kickback').value; else delete board.kickback;
+  changed();
+});
+document.querySelectorAll('[data-rule]').forEach(input => input.addEventListener('change', () => {
+  remember();
+  board.rules = board.rules || {};
+  if (input.value === '') delete board.rules[input.dataset.rule];
+  else board.rules[input.dataset.rule] = Number(input.value);
+  changed();
+}));
+$('multipliers').addEventListener('change', () => {
+  remember();
+  const list = $('multipliers').value.split(/[ ,;]+/).map(Number).filter(n => n >= 1);
+  board.rules = board.rules || {};
+  if (list.length) board.rules.multipliers = list; else delete board.rules.multipliers;
+  changed();
+});
+function renderSettings() {
+  const defaults = PinballRules.DEFAULT_RULES, r = board.rules || {};
+  $('kickback').value = board.kickback || '';
+  document.querySelectorAll('[data-rule]').forEach(input => {
+    input.value = r[input.dataset.rule] !== undefined ? r[input.dataset.rule] : '';
+    input.placeholder = defaults[input.dataset.rule];
+  });
+  $('multipliers').value = (r.multipliers || []).join(',');
+  $('multipliers').placeholder = defaults.multipliers.join(',');
+}
+
+function setStatus(text, kind) {
+  const s = $('status');
+  s.textContent = text;
+  s.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+/* ══════════════════════ LASTE OG LAGRE ══════════════════════ */
+const themeLoads = {};
+function loadTheme(id) {
+  if (!themeLoads[id]) {
+    themeLoads[id] = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = `/machines/${encodeURIComponent(id)}/theme.js`;
+      s.onload = () => resolve(PinballThemes[id]);
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+  }
+  return themeLoads[id];
+}
+
+function showInfo(info, text) {
+  board = JSON.parse(JSON.stringify(info.board));
+  history = [];
+  selected = null;
+  dirty = false;
+  checkMarks = [];
+  rebuild();
+  renderProps();
+  renderSettings();
+  const src = info.saved ? `lagret brett (${info.savedAt})` : 'standardbrettet fra koden';
+  setStatus(text || `Viser ${src}`);
+  $('btn-undo-save').disabled = !info.versions;
+}
+
+async function loadMachine(id) {
+  if (dirty && !confirm('Du har ulagrede endringer. Bytte maskin likevel?')) {
+    $('machine').value = machineId;
+    return;
+  }
+  stopTest();
+  machineId = id;
+  const [info, theme] = await Promise.all([fetch(`/api/brett/${id}`).then(r => r.json()), loadTheme(id)]);
+  PinballRenderer.setTheme(theme);
+  document.body.style.background = '#12131a';
+  showInfo(info);
+}
+
+async function post(path, body) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : '{}' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Ukjent feil');
+  return data;
+}
+
+$('btn-save').addEventListener('click', async () => {
+  try {
+    const info = await post(`/api/brett/${machineId}`, board);
+    showInfo(info, `✓ Lagret ${info.savedAt} – brukes fra neste spillers tur`);
+  } catch (err) {
+    setStatus('Kunne ikke lagre: ' + err.message, 'error');
+  }
+});
+$('btn-undo-save').addEventListener('click', async () => {
+  if (!confirm('Gå tilbake til forrige lagrede versjon av brettet?')) return;
+  try { showInfo(await post(`/api/brett/${machineId}/angre`), '↶ Gikk tilbake til forrige lagring'); }
+  catch (err) { setStatus('Feil: ' + err.message, 'error'); }
+});
+$('btn-standard').addEventListener('click', async () => {
+  if (!confirm('Bruke standardbrettet fra koden igjen? (Kan angres med «Angre siste lagring».)')) return;
+  try { showInfo(await post(`/api/brett/${machineId}/standard`), 'Standardbrettet er i bruk igjen'); }
+  catch (err) { setStatus('Feil: ' + err.message, 'error'); }
+});
+$('btn-download').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(board, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `board-${machineId}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+window.addEventListener('beforeunload', (ev) => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+
+/* ══════════════════════ PRØV BRETTET ══════════════════════ */
+let testTimer = null;
+const keysDown = new Set();
+function startTest() {
+  PinballSound.init();
+  rebuild();
+  rules.newGame();
+  testScore = 0; testBalls = 3; testOver = false; plungerStart = null;
+  testing = true;
+  document.body.classList.add('testing');
+  $('btn-test').textContent = '■ Stopp';
+  $('btn-test').classList.add('active');
+  testTimer = setInterval(testTick, 1000 / 60);
+  setStatus('Prøvespill – 3 baller');
+}
+function stopTest() {
+  if (!testing) return;
+  clearInterval(testTimer);
+  testing = false;
+  events = [];
+  document.body.classList.remove('testing');
+  $('btn-test').textContent = '▶ Prøv brettet';
+  $('btn-test').classList.remove('active');
+  rebuild();
+  setStatus(dirty ? 'Ulagrede endringer' : 'Prøvespill stoppet', dirty ? 'dirty' : '');
+}
+function testTick() {
+  const res = rules.handle(Physics.step(), performance.now());
+  events = res.events;
+  testScore += res.points;
+  if (res.extraBall) testBalls += 1;
+  if (res.ballLost) {
+    testBalls -= 1;
+    if (testBalls <= 0) {
+      setStatus(`Prøvespill ferdig: ${testScore.toLocaleString('nb-NO')} poeng`);
+      events.push({ type: 'gameover' });
+      stopTest();
+      return;
+    }
+  }
+  const theme = PinballRenderer.theme;
+  for (const e of events) PinballSound.play(theme.sounds, e.type, e);
+  PinballRenderer.handleEvents(buildState());
+  setStatus(`Prøvespill: ${testScore.toLocaleString('nb-NO')} poeng · ${testBalls} ${testBalls === 1 ? 'ball' : 'baller'} igjen`);
+}
+$('btn-test').addEventListener('click', () => testing ? stopTest() : startTest());
+
+const flipKey = { ArrowLeft: 'left', a: 'left', A: 'left', z: 'left', ArrowRight: 'right', d: 'right', D: 'right', m: 'right' };
+document.addEventListener('keydown', (ev) => {
+  if (!testing) return;
+  if (ev.key === 'Escape') { stopTest(); return; }
+  if (ev.repeat) return;
+  const side = flipKey[ev.key];
+  if (side) {
+    ev.preventDefault();
+    if (!Physics.flippers[side].pressed) Physics.rotateRollovers(side === 'left' ? -1 : 1);
+    Physics.setFlipper(side, true);
+    PinballSound.play(PinballRenderer.theme.sounds, 'flipper');
+  }
+  if (ev.key === ' ') { ev.preventDefault(); if (plungerStart === null && Physics.ball.ready) plungerStart = performance.now(); }
+});
+document.addEventListener('keyup', (ev) => {
+  if (!testing) return;
+  const side = flipKey[ev.key];
+  if (side) { Physics.setFlipper(side, false); PinballSound.play(PinballRenderer.theme.sounds, 'flipperDown'); }
+  if (ev.key === ' ' && plungerStart !== null) {
+    const power = Math.min(1, (performance.now() - plungerStart) / 1200);
+    plungerStart = null;
+    if (Physics.launch(power)) { rules.onLaunch(performance.now()); PinballSound.play(PinballRenderer.theme.sounds, 'launch', { power }); }
+  }
+});
+
+/* ══════════════════════ SJEKK BRETTET ══════════════════════ */
+// Simulerer 5 minutter spill med en enkel "robotspiller" og forteller om ballen setter seg fast,
+// og om noen elementer aldri blir truffet.
+function checkBoard() {
+  stopTest();
+  rebuild();
+  const r = PinballRules.createRules(Physics);
+  r.setBoardRules(board.rules);
+  r.newGame();
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const hitCount = {};
+  const count = (key) => { hitCount[key] = (hitCount[key] || 0) + 1; };
+  let still = 0, drains = 0, nl = 0, nr = 0;
+  checkMarks = [];
+  const ticks = 60 * 60 * 5;
+  for (let t = 0; t < ticks; t++) {
+    const now = t * 1000 / 60;
+    if (Physics.ball.ready && Physics.balls.length === 1 && Physics.launch(rnd())) r.onLaunch(now);
+    const near = (side) => Physics.balls.some(b => !b.ready && b.y > 1000 && b.y < 1110 && (side === 'left' ? b.x < 350 : b.x >= 350));
+    if (t >= nl) { Physics.setFlipper('left', near('left') && rnd() < 0.5); nl = t + 6 + Math.floor(rnd() * 10); }
+    if (t >= nr) { Physics.setFlipper('right', near('right') && rnd() < 0.5); nr = t + 6 + Math.floor(rnd() * 10); }
+    const ev = Physics.step();
+    ev.hits.forEach(i => count('bumper' + i));
+    ev.slings.forEach(i => count('sling' + i));
+    ev.rollovers.forEach(i => count('rollover' + i));
+    ev.drops.forEach(d => count('drop' + d.bank));
+    ev.standups.forEach(i => count('standup' + i));
+    ev.spins.forEach(i => count('spinner' + i));
+    ev.scoops.forEach(i => count('scoop' + i));
+    ev.ramps.forEach(i => count('ramp' + i));
+    r.handle(ev, now);
+    if (ev.drained) drains++;
+    const stuck = Physics.balls.find(b => !b.ready && !b.held && !b.ramp && Math.hypot(b.vx, b.vy) < 0.15 && b.y < 1040);
+    still = stuck ? still + 1 : 0;
+    if (still === 300) checkMarks.push({ x: stuck.x, y: stuck.y });
+  }
+  // Knytt fysikkens nummerering (speilede kopier teller som egne) til elementene i menyen
+  const lines = [];
+  const report = (list, prefix, mirrorable) => {
+    let k = 0;
+    (board[list] || []).forEach((el, i) => {
+      const copies = mirrorable && el.speil ? 2 : 1;
+      let n = 0;
+      for (let c = 0; c < copies; c++) n += hitCount[prefix + (k + c)] || 0;
+      k += copies;
+      lines.push({ name: elementName({ type: list, index: i, ref: el }), n });
+    });
+  };
+  // Bumpere: pop bumpers først, så vanlige (slik fysikken bygger dem)
+  let bk = 0;
+  for (const list of ['popBumpers', 'bumpers']) {
+    (board[list] || []).forEach((el, i) => {
+      const copies = el.speil ? 2 : 1;
+      let n = 0;
+      for (let c = 0; c < copies; c++) n += hitCount['bumper' + (bk + c)] || 0;
+      bk += copies;
+      lines.push({ name: elementName({ type: list, index: i, ref: el }), n });
+    });
+  }
+  report('slingshots', 'sling', true);
+  report('dropTargets', 'drop', true);
+  report('standups', 'standup', true);
+  report('spinners', 'spinner', true);
+  report('scoops', 'scoop', false);
+  report('ramps', 'ramp', false);
+  if (board.rollovers) {
+    let n = 0;
+    board.rollovers.lanes.forEach((_, i) => { n += hitCount['rollover' + i] || 0; });
+    lines.push({ name: elementName({ type: 'rollovers', ref: board.rollovers }), n });
+  }
+  const box = $('report');
+  const stuckText = checkMarks.length
+    ? `<span class="bad">⚠ Ballen sto fast ${checkMarks.length} gang(er) – se røde ringer på brettet.</span>`
+    : '<span class="ok">✓ Ballen satte seg ikke fast.</span>';
+  box.innerHTML = `<b>Simulert 5 min:</b> ${drains} baller, i snitt ${drains ? Math.round(300 / drains) : '–'} s per ball\n${stuckText}\n\n` +
+    lines.map(l => `${l.n ? '<span class="ok">' : '<span class="bad">'}${l.n ? l.n + '×' : 'aldri'}</span>  ${l.name}`).join('\n') +
+    '\n\n<span style="color:#8a8fa8">Robotspilleren sikter ikke, så sjeldne treff er normalt for ramper og scoops.</span>';
+  box.classList.add('show');
+  rebuild();
+}
+$('btn-check').addEventListener('click', checkBoard);
+
+/* ══════════════════════ OPPSTART ══════════════════════ */
+(async () => {
+  const list = await fetch('/api/maskiner').then(r => r.json());
+  const sel = $('machine');
+  for (const m of list) sel.insertAdjacentHTML('beforeend', `<option value="${m.id}">${m.icon} ${m.name}</option>`);
+  const wanted = new URLSearchParams(location.search).get('maskin');
+  sel.value = list.some(m => m.id === wanted) ? wanted : list[0].id;
+  sel.addEventListener('change', () => loadMachine(sel.value));
+  resize();
+  await loadMachine(sel.value);
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

@@ -135,7 +135,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 PinballRenderer.resize();
-window.addEventListener('resize', PinballRenderer.resize);
+window.addEventListener('resize', () => PinballRenderer.resize());
 requestAnimationFrame(drawGame);
 </script>
 </body>

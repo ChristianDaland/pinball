@@ -1023,9 +1023,9 @@ const PinballRenderer = (() => {
     setTheme(null);
   }
 
-  // Skarp på HiDPI-skjermer; brettet skaleres til å fylle vinduet
-  function resize() {
-    const cssScale = Math.min(window.innerWidth / BW, window.innerHeight / BH);
+  // Skarp på HiDPI-skjermer; brettet skaleres til å fylle vinduet (eller en gitt bredde/høyde)
+  function resize(maxW, maxH) {
+    const cssScale = Math.min((maxW || window.innerWidth) / BW, (maxH || window.innerHeight) / BH);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.style.width = Math.floor(BW * cssScale) + 'px';
     canvas.style.height = Math.floor(BH * cssScale) + 'px';
@@ -1125,5 +1125,5 @@ const PinballRenderer = (() => {
     drawGameOver(state);
   }
 
-  return { init, resize, setLayout, setTheme, handleEvents, frame, get theme() { return T; } };
+  return { init, resize, setLayout, setTheme, handleEvents, frame, BW, BH, get theme() { return T; } };
 })();

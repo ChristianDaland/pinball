@@ -8,12 +8,23 @@ const crypto = require('crypto');
 const physics = require('./physics');
 const { createHighScores } = require('./highscores');
 const { createRules } = require('./rules');
+const { createBoardStore, cleanBoard } = require('./boards');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// physics.js og rules.js brukes også i nettleseren (redigering.html: "Prøv brettet"),
+// pakket inn så de virker uten Node: window.PinballPhysics / window.PinballRules
+for (const [file, name] of [['physics.js', 'PinballPhysics'], ['rules.js', 'PinballRules']]) {
+    app.get('/engine/' + file, (req, res) => {
+        const code = fs.readFileSync(path.join(__dirname, file), 'utf8');
+        res.type('application/javascript').send(`(function () {\nvar module = { exports: {} };\n${code}\nwindow.${name} = module.exports;\n})();\n`);
+    });
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({ limit: '200kb' }));
 
 const BALLS_PER_GAME = 3;
 
@@ -50,14 +61,83 @@ function validMachine(id) {
 const rules = createRules(physics);
 let boardMachine = null; // maskinen hvis brett er lastet inn i fysikken
 
-// Laster maskinens brett inn i fysikken (bare når det er en annen maskin enn sist)
-function useBoard(id) {
-    if (id === boardMachine) return;
-    const m = machines.find(x => x.id === id);
-    physics.loadBoard(m.board);
-    rules.setBoardRules(m.board.rules);
+// Brett lagret fra redigeringen overstyrer standardbrettet (board.json)
+const boardStore = createBoardStore({
+    machineIds: machines.map(m => m.id),
+    file: process.env.BOARDS_FILE || path.join(__dirname, 'saved-boards.json'),
+});
+
+function effectiveBoard(id) {
+    const saved = boardStore.get(id);
+    if (saved && !saved.board._standard) return saved.board;
+    return machines.find(m => m.id === id).board;
+}
+
+// Laster maskinens brett inn i fysikken (når det er en annen maskin enn sist, eller force)
+function useBoard(id, force) {
+    if (id === boardMachine && !force) return;
+    const board = effectiveBoard(id);
+    physics.loadBoard(board);
+    rules.setBoardRules(board.rules);
     boardMachine = id;
     io.emit('layout', physics.layout);
+}
+
+// Et nylig lagret brett tas i bruk med en gang hvis ingen spiller, ellers ved neste tur
+function applySavedBoard(id) {
+    if (id === game.machine && !game.playerId) useBoard(id, true);
+}
+
+/* ── API for redigeringen ── */
+const machineOr404 = (req, res) => {
+    const m = machines.find(x => x.id === req.params.id);
+    if (!m) res.status(404).json({ error: 'Ukjent maskin' });
+    return m;
+};
+async function boardInfo(id) {
+    const saved = boardStore.get(id);
+    return {
+        board: effectiveBoard(id),
+        standard: machines.find(m => m.id === id).board,
+        saved: !!(saved && !saved.board._standard),
+        savedAt: saved ? saved.savedAt : null,
+        versions: await boardStore.count(id),
+    };
+}
+app.get('/api/maskiner', (req, res) => {
+    res.json(machines.map(m => ({ id: m.id, name: m.name, icon: m.icon, colors: m.colors })));
+});
+app.get('/api/brett/:id', async (req, res) => {
+    if (!machineOr404(req, res)) return;
+    res.json(await boardInfo(req.params.id));
+});
+app.post('/api/brett/:id', async (req, res) => {
+    if (!machineOr404(req, res)) return;
+    let board;
+    try {
+        board = cleanBoard(req.body);
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
+    }
+    try {
+        await boardStore.save(req.params.id, board);
+        applySavedBoard(req.params.id);
+        res.json(await boardInfo(req.params.id));
+    } catch (err) {
+        res.status(500).json({ error: 'Kunne ikke lagre: ' + err.message });
+    }
+});
+for (const [route, action] of [['angre', 'undo'], ['standard', 'reset']]) {
+    app.post(`/api/brett/:id/${route}`, async (req, res) => {
+        if (!machineOr404(req, res)) return;
+        try {
+            await boardStore[action](req.params.id);
+            applySavedBoard(req.params.id);
+            res.json(await boardInfo(req.params.id));
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
 }
 const LAUNCH_TIMEOUT_MS = 30000;   // så lenge ballen kan ligge klar før turen går videre
 const RECONNECT_GRACE_MS = 30000;  // så lenge en frakoblet spiller beholder plassen sin
@@ -82,6 +162,7 @@ const highScores = createHighScores({
 });
 highScores.init().then(() => io.emit('machines', machineList()));
 useBoard(game.machine);
+boardStore.init().then(() => useBoard(game.machine, true));
 
 function cleanName(name) {
     if (typeof name !== 'string') return '';
@@ -113,7 +194,7 @@ function startTurn(cid) {
         scores[players[cid].id] = 0;
         game.machine = players[cid].machine;
     }
-    useBoard(game.machine);
+    useBoard(game.machine, true);
     physics.setFlipper('left', false);
     physics.setFlipper('right', false);
     physics.resetBall();

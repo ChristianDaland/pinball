@@ -1,3 +1,4 @@
 node_modules/
 highscores.json
 .env
+saved-boards.json
