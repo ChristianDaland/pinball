@@ -839,14 +839,16 @@ function renderMachineSettings() {
   }
   const c = m.colors || {};
   box.innerHTML = `
-    <p class="hint">${m.published ? '✅ Publisert – vises på hovedsiden' : '<span class="draft">✏️ Utkast – vises ikke for spillerne</span>'}</p>
+    <p class="hint">${m.published
+      ? '✅ Publisert – vises på hovedsiden. Endringer på brettet når spillerne når du trykker 💾 Lagre.'
+      : '<span class="draft">✏️ Utkast – vises ikke for spillerne. Lagre brettet, og trykk «Publiser» når det er klart.</span>'}</p>
     <div class="field"><label>Navn</label><input type="text" data-m="name" maxlength="24" style="width:130px"></div>
     <div class="field"><label>Ikon</label><input type="text" data-m="icon" maxlength="8" style="width:60px"></div>
     <div class="field"><label>Slagord</label><input type="text" data-m="tagline" maxlength="60" style="width:130px"></div>
     <div class="field"><label>Utseende</label><select id="m-theme"></select></div>
-    <div class="field"><label>Spillefelt-farge</label><span><input type="color" id="m-playfield" value="${m.playfieldColor || '#1f4d29'}">
+    <div class="field"><label>Spillefelt-farge</label><span><input type="color" id="m-playfield" value="${m.playfieldColor || themePlayfield()}">
       <button id="m-playfield-reset" title="Bruk utseendets egen farge" ${m.playfieldColor ? '' : 'disabled'}>↺</button></span></div>
-    <p class="hint">Utseende og spillefelt-farge gjelder selve brettet.</p>
+    <p class="hint">Utseende og spillefelt-farge gjelder selve brettet. ${m.playfieldColor ? 'Egen farge er valgt (↺ = utseendets farge).' : 'Nå brukes utseendets egen farge.'}</p>
     <div class="field"><label>Lysfarge (skjermer)</label><input type="color" data-c="accent" value="${c.accent || '#ffe66d'}"></div>
     <div class="field"><label>Bakgrunn (skjermer)</label><span><input type="color" data-c="bg" value="${c.bg || '#1a1a2e'}"><input type="color" data-c="bg2" value="${c.bg2 || '#16213e'}"></span></div>
     <div class="field"><button id="btn-publish" class="${m.published ? '' : 'primary'}">${m.published ? 'Skjul fra hovedsiden' : '🚀 Publiser'}</button>
@@ -878,6 +880,14 @@ function renderMachineSettings() {
     await loadMachine($('machine').value);
     setStatus(`Maskinen «${m.name}» er slettet`);
   });
+}
+
+// Spillefeltets farge slik den faktisk vises nå (midtfargen i gradienten), som #rrggbb
+function themePlayfield() {
+  const c = (PinballRenderer.theme.colors.playfield || [])[1] || '#1f4d29';
+  if (/^#[0-9a-fA-F]{6}$/.test(c)) return c;
+  const m = c.match(/\d+/g);
+  return m ? '#' + m.slice(0, 3).map(n => (+n).toString(16).padStart(2, '0')).join('') : '#1f4d29';
 }
 
 // Tegner brettet med maskinens utseende (egne maskiner: egen tittel og evt. egen spillefelt-farge)
