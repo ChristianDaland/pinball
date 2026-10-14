@@ -1,0 +1,41 @@
+{
+  "_info": "Brettet for RomPinball. Koordinater i et 800x1300-brett (x 80–620 er spillefeltet). \"speil\": true lager en speilet kopi på andre siden. Se dokumentet, punkt 6.",
+
+  "walls": [
+    { "_info": "toppkile: sender ballen fra oppskytingen ned i rollover-banene", "points": [[178, 114], [242, 67], [214, 138]], "closed": true },
+    { "_info": "avviser til venstre", "points": [[80, 420], [112, 520], [80, 560]], "closed": true },
+    { "_info": "avviser oppe til høyre", "points": [[620, 330], [588, 400], [620, 425]], "closed": true },
+    { "_info": "kloss bak satellitten", "points": [[80, 610], [88, 615], [100, 695], [80, 705]], "closed": true }
+  ],
+
+  "slingshots": [
+    { "a": [148.0, 911.7], "b": [224.4, 1021.7], "c": [268.4, 1045.7], "speil": true, "score": 10 }
+  ],
+
+  "popBumpers": [
+    { "x": 215, "y": 330, "r": 26, "score": 100, "icon": "🪐", "color": "#b26bff" },
+    { "x": 305, "y": 290, "r": 26, "score": 100, "icon": "🌍", "color": "#3fa9ff" },
+    { "x": 285, "y": 395, "r": 26, "score": 100, "icon": "🌙", "color": "#9fb3ff" }
+  ],
+
+  "bumpers": [
+    { "_info": "planeten", "x": 350, "y": 640, "r": 42, "score": 150, "kick": 5, "icon": "☀️", "color": "#ffd23f" }
+  ],
+
+  "rollovers": {
+    "y": 200, "lanes": [270, 350, 430], "guides": [230, 310, 390, 470], "guideTop": 165, "guideBottom": 225,
+    "letters": "ROM", "score": 50
+  },
+
+  "dropTargets": [
+    { "_info": "meteorbeltet", "from": [430, 440], "to": [575, 520], "count": 4, "score": 150 }
+  ],
+
+  "standups": [
+    { "_info": "satellitten", "from": [94, 614], "to": [106, 694], "score": 200 }
+  ],
+
+  "kickback": "høyre",
+
+  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5] }
+}

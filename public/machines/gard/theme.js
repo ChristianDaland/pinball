@@ -64,6 +64,17 @@ PinballThemes['gard'] = {
       s.tone(330, 0.25, { type: 'triangle', vol: 0.3, delay: 0.22 });
       s.tone(262, 0.6, { type: 'triangle', vol: 0.3, delay: 0.44, slideTo: 196 });
     },
+    rollover: (s) => s.pling(1319),
+    drop: (s) => { s.plong(110); s.noise(0.06, { vol: 0.4, freq: 600, q: 1 }); },
+    dropsComplete: (s) => [523, 659, 784, 1047].forEach((f, i) => s.tone(f, 0.2, { type: 'triangle', vol: 0.25, delay: i * 0.1 })),
+    standup: (s) => { s.tone(1568, 0.25, { type: 'triangle', vol: 0.2 }); s.tone(2093, 0.15, { vol: 0.08 }); },
+    kickback: (s) => { s.noise(0.25, { vol: 0.5, freq: 500, q: 0.7 }); s.plong(98); },
+    ballSaved: (s) => [784, 988, 1175].forEach((f, i) => s.tone(f, 0.25, { type: 'triangle', vol: 0.25, delay: i * 0.12 })),
+    multiplier: (s) => [392, 523, 659, 784].forEach((f, i) => {
+      s.tone(f, 0.5, { vol: 0.22, delay: i * 0.1 });
+      s.tone(f * 2.76, 0.25, { vol: 0.06, delay: i * 0.1 });
+    }),
+    bonus: (s) => { for (let i = 0; i < 8; i++) s.tone(700 + i * 60, 0.07, { type: 'triangle', vol: 0.15, delay: 0.3 + i * 0.08 }); },
     gameover: (s) => {
       [523, 494, 466, 440].forEach((f, i) => s.tone(f, 0.35, { type: 'square', vol: 0.08, delay: 0.8 + i * 0.28 }));
       s.tone(220, 1.2, { type: 'triangle', vol: 0.25, delay: 0.8 + 4 * 0.28, slideTo: 110 });

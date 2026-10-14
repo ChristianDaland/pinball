@@ -52,6 +52,18 @@ PinballThemes['rommet'] = {
     hudText: '#cfe8ff',
     gameOver: '#ff5edb',
     gameOverGlow: '#b026ff',
+    popSkirt: '#141836',
+    rolloverOn: '#5ef2ff',
+    rolloverOff: '#141a3a',
+    rolloverText: '#02040e',
+    dropTarget: ['#ffb27a', '#b5432a'],
+    dropSlot: 'rgba(0,0,0,0.6)',
+    standup: ['#e6f2ff', '#5a6f98'],
+    standupFlash: '#7ff6ff',
+    lightOn: '#ff5edb',
+    lightOff: 'rgba(40,30,80,0.7)',
+    lightText: '#ffffff',
+    callout: '#7ff6ff',
   },
 
   // Metallplater med nagler, og raketter/UFO-er som "dekaler" på skapet
@@ -137,6 +149,14 @@ PinballThemes['rommet'] = {
       s.tone(600, 0.9, { type: 'sine', vol: 0.3, slideTo: 80 });
       s.tone(605, 0.9, { type: 'sine', vol: 0.2, slideTo: 82 });
     },
+    rollover: (s) => s.tone(1200, 0.12, { type: 'sine', vol: 0.15, slideTo: 1800 }),
+    drop: (s) => { s.tone(220, 0.2, { type: 'square', vol: 0.12, slideTo: 80 }); s.noise(0.08, { vol: 0.3, freq: 800, q: 1 }); },
+    dropsComplete: (s) => [523, 659, 784, 1047].forEach((f, i) => s.tone(f, 0.18, { type: 'square', vol: 0.08, delay: i * 0.08 })),
+    standup: (s) => s.tone(900, 0.1, { type: 'triangle', vol: 0.2, slideTo: 600 }),
+    kickback: (s) => { s.noise(0.3, { vol: 0.4, freq: 400, q: 0.6 }); s.tone(100, 0.4, { type: 'sawtooth', vol: 0.12, slideTo: 900 }); },
+    ballSaved: (s) => [880, 1175, 1568].forEach((f, i) => s.tone(f, 0.2, { vol: 0.15, delay: i * 0.1 })),
+    multiplier: (s) => [440, 554, 659, 880].forEach((f, i) => s.tone(f, 0.25, { type: 'sawtooth', vol: 0.07, delay: i * 0.09 })),
+    bonus: (s) => { for (let i = 0; i < 8; i++) s.tone(600 + i * 80, 0.06, { type: 'square', vol: 0.06, delay: 0.3 + i * 0.07 }); },
     gameover: (s) => {
       [784, 659, 523, 392, 330].forEach((f, i) => s.tone(f, 0.3, { type: 'triangle', vol: 0.2, delay: 0.8 + i * 0.22 }));
       s.tone(196, 1.4, { type: 'sine', vol: 0.25, delay: 0.8 + 5 * 0.22, slideTo: 60 });

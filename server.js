@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const physics = require('./physics');
 const { createHighScores } = require('./highscores');
+const { createRules } = require('./rules');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,8 +18,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const BALLS_PER_GAME = 3;
 
 // Maskinene finnes som mapper i public/machines/<id>/ med machine.json (navn, farger …)
-// og theme.js (utseende og lyd). Fysikken er lik for alle. Bare ett brett: maskinen bytter
-// til den som har tur sin maskin.
+// theme.js (utseende og lyd) og board.json (hindre, poenggivere og regler). Flippere, kanal og
+// yttervegger er like for alle. Bare ett fysisk brett: det bytter til maskinen til den som har tur.
 const MACHINES_DIR = path.join(__dirname, 'public', 'machines');
 const machines = loadMachines();
 const DEFAULT_MACHINE = machines[0].id;
@@ -28,9 +29,12 @@ function loadMachines() {
     for (const id of fs.readdirSync(MACHINES_DIR)) {
         if (!/^[a-z0-9-]+$/.test(id)) continue;
         try {
-            const info = JSON.parse(fs.readFileSync(path.join(MACHINES_DIR, id, 'machine.json'), 'utf8'));
+            const dir = path.join(MACHINES_DIR, id);
+            const info = JSON.parse(fs.readFileSync(path.join(dir, 'machine.json'), 'utf8'));
+            const boardFile = path.join(dir, 'board.json');
+            const board = fs.existsSync(boardFile) ? JSON.parse(fs.readFileSync(boardFile, 'utf8')) : {};
             list.push({ id, name: info.name || id, tagline: info.tagline || '', icon: info.icon || '🎰',
-                order: info.order || 99, colors: info.colors || {} });
+                order: info.order || 99, colors: info.colors || {}, board });
         } catch (e) {
             console.error(`Hopper over maskin "${id}":`, e.message);
         }
@@ -41,6 +45,19 @@ function loadMachines() {
 
 function validMachine(id) {
     return machines.some(m => m.id === id) ? id : null;
+}
+
+const rules = createRules(physics);
+let boardMachine = null; // maskinen hvis brett er lastet inn i fysikken
+
+// Laster maskinens brett inn i fysikken (bare når det er en annen maskin enn sist)
+function useBoard(id) {
+    if (id === boardMachine) return;
+    const m = machines.find(x => x.id === id);
+    physics.loadBoard(m.board);
+    rules.setBoardRules(m.board.rules);
+    boardMachine = id;
+    io.emit('layout', physics.layout);
 }
 const LAUNCH_TIMEOUT_MS = 30000;   // så lenge ballen kan ligge klar før turen går videre
 const RECONNECT_GRACE_MS = 30000;  // så lenge en frakoblet spiller beholder plassen sin
@@ -64,6 +81,7 @@ const highScores = createHighScores({
     file: process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json'),
 });
 highScores.init().then(() => io.emit('machines', machineList()));
+useBoard(game.machine);
 
 function cleanName(name) {
     if (typeof name !== 'string') return '';
@@ -84,7 +102,7 @@ function addHighScore(cid) {
 
 // Maskinoversikt til hovedsiden og poengtavla: navn, farger og topp 10
 function machineList() {
-    return machines.map(m => ({ ...m, highScores: highScores.top(m.id) }));
+    return machines.map(({ board, ...m }) => ({ ...m, highScores: highScores.top(m.id) }));
 }
 
 function startTurn(cid) {
@@ -94,9 +112,11 @@ function startTurn(cid) {
         scores[players[cid].id] = 0;
         game.machine = players[cid].machine;
     }
+    useBoard(game.machine);
     physics.setFlipper('left', false);
     physics.setFlipper('right', false);
     physics.resetBall();
+    rules.newGame();
     plungerPullStart = null;
     readySince = null;
 }
@@ -187,8 +207,14 @@ io.on('connection', (socket) => {
         else queue = queue.filter(q => q !== cid);
     });
 
-    socket.on('flip-left', (pressed) => { if (canControl(socket)) physics.setFlipper('left', pressed); });
-    socket.on('flip-right', (pressed) => { if (canControl(socket)) physics.setFlipper('right', pressed); });
+    // Et nytt trykk på en flipper flytter også de tente rollover-lysene ("lane change")
+    const flip = (side, pressed) => {
+        if (!canControl(socket)) return;
+        if (pressed && !physics.flippers[side].pressed) physics.rotateRollovers(side === 'left' ? -1 : 1);
+        physics.setFlipper(side, pressed);
+    };
+    socket.on('flip-left', (pressed) => flip('left', pressed));
+    socket.on('flip-right', (pressed) => flip('right', pressed));
 
     // Hold inne for å trekke fjæra; slipp (ball-launch) for å skyte. Uten trekk velges tilfeldig styrke.
     socket.on('plunger-pull', () => {
@@ -199,7 +225,10 @@ io.on('connection', (socket) => {
         if (!canControl(socket)) return;
         const power = plungerPullStart === null ? undefined : plungerPower();
         plungerPullStart = null;
-        if (physics.launch(power)) soundEvents.push({ type: 'launch', power: power === undefined ? 0.7 : power });
+        if (physics.launch(power)) {
+            rules.onLaunch(Date.now());
+            soundEvents.push({ type: 'launch', power: power === undefined ? 0.7 : power });
+        }
     });
 
     socket.on('disconnect', () => {
@@ -237,29 +266,15 @@ setInterval(() => {
 }, 1000);
 
 setInterval(() => {
-    const events = physics.step();
-
-    const addScore = (points) => {
-        if (game.playerId) {
-            const id = players[game.playerId].id;
-            scores[id] = (scores[id] || 0) + points;
-        }
-    };
-    for (const i of events.hits) {
-        addScore(physics.bumpers[i].score);
-        soundEvents.push({ type: 'bumper', i, points: physics.bumpers[i].score });
+    const result = rules.handle(physics.step(), Date.now());
+    soundEvents.push(...result.events);
+    if (game.playerId && result.points) {
+        const id = players[game.playerId].id;
+        scores[id] = (scores[id] || 0) + result.points;
     }
-    for (const i of events.slings) {
-        addScore(physics.SLING_SCORE);
-        soundEvents.push({ type: 'sling', i, points: physics.SLING_SCORE });
-    }
-
-    if (events.drained) {
-        soundEvents.push({ type: 'drain' });
-        if (game.playerId) {
-            game.ballsLeft -= 1;
-            if (game.ballsLeft <= 0) endGame();
-        }
+    if (result.ballLost && game.playerId) {
+        game.ballsLeft -= 1;
+        if (game.ballsLeft <= 0) endGame();
     }
 
     // Starter nedtellingen hver gang ballen blir liggende klar for spilleren som har tur
@@ -292,8 +307,10 @@ function buildGameState() {
             left: { angle: f.left.angle, pressed: f.left.pressed },
             right: { angle: f.right.angle, pressed: f.right.pressed },
         },
-        bumpers: physics.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, score: b.score, color: b.color, hitFlash: b.hitFlash })),
+        bumpers: physics.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, score: b.score, type: b.type, color: b.color, icon: b.icon, hitFlash: b.hitFlash })),
         slingFlash: physics.slingshots.map(s => s.flash),
+        table: physics.tableState(),
+        ...rules.state(Date.now()),
         plunger: plungerPower(),
         events: soundEvents,
     };

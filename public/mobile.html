@@ -411,6 +411,14 @@ socket.on('state', (state) => {
   wasInQueue = inQueue;
 
   if (myTurn && !wasMyTurn && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  // Kjenn de store øyeblikkene i hånda
+  if (myTurn && navigator.vibrate) {
+    for (const e of state.events || []) {
+      if (e.type === 'kickback' || e.type === 'ballSaved') navigator.vibrate([60, 40, 60]);
+      if (e.type === 'multiplier' || e.type === 'dropsComplete') navigator.vibrate([40, 30, 40, 30, 120]);
+      if (e.type === 'drain') navigator.vibrate(300);
+    }
+  }
   wasMyTurn = myTurn;
 
   if (!inQueue) {

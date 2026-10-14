@@ -96,6 +96,11 @@ body {
 
 .balls { font-size: 3.4vh; letter-spacing: 1vh; min-height: 4vh; }
 .balls .used { opacity: 0.2; }
+/* Bonus og multiplikator for ballen som er i spill */
+.bonus-line { font-size: 2.8vh; min-height: 3.6vh; opacity: 0.9; }
+.bonus-line .mult { color: var(--accent); font-weight: bold; }
+.bonus-line .save { color: #4ade80; font-weight: bold; margin-left: 1.5vw; }
+#glass.idle .bonus-line { display: none; }
 .msg { font-size: 3.6vh; font-weight: bold; color: var(--accent); min-height: 4.5vh; margin-top: 1vh; }
 
 .side {
@@ -181,6 +186,7 @@ body {
       <div class="player" id="player"></div>
       <div class="score" id="score">0</div>
       <div class="balls" id="balls"></div>
+      <div class="bonus-line" id="bonus-line"></div>
       <div class="msg" id="msg"></div>
     </div>
     <div class="side">
@@ -313,13 +319,28 @@ socket.on('state', (state) => {
     ballsEl.innerHTML = '';
   }
 
+  // Bonus og multiplikator for ballen i spill, og om ball save er aktiv
+  const bonusHtml = current
+    ? `Bonus ${(state.bonus || 0).toLocaleString('nb-NO')}${state.multiplier > 1 ? ` <span class="mult">× ${state.multiplier}</span>` : ''}` +
+      (state.ballSave ? '<span class="save">↺ BALL SAVE</span>' : '')
+    : '';
+  const bonusEl = document.getElementById('bonus-line');
+  if (bonusEl.innerHTML !== bonusHtml) bonusEl.innerHTML = bonusHtml;
+
+  let bonusText = '';
   for (const e of state.events || []) {
-    if (e.type === 'bumper' || e.type === 'sling') {
-      if (current && e.points) popup(e.points);
-      if (e.type === 'bumper') flash();
-      bumpScore();
+    // Alle treff som gir poeng: "+poeng" og en liten dunk i displayet
+    if (current && e.points && e.type !== 'bonus') { popup(e.points); bumpScore(); }
+    if (e.type === 'bumper' || e.type === 'dropsComplete' || e.type === 'multiplier') flash();
+    if (e.type === 'multiplier') message(`✨ BONUS ${e.value}×!`, 2000);
+    if (e.type === 'dropsComplete') message('🎯 ALLE MÅL! KICKBACK TENT', 2000);
+    if (e.type === 'kickback') message('⬆ KICKBACK!', 1500);
+    if (e.type === 'ballSaved') { message('↺ BALL SAVED!', 2000); flash(); }
+    if (e.type === 'bonus') {
+      bonusText = ` Bonus ${e.bonus.toLocaleString('nb-NO')} × ${e.multiplier} = ${e.total.toLocaleString('nb-NO')}`;
+      if (current) popup(e.total);
     }
-    if (e.type === 'drain' && current && state.ballsLeft > 0) message('💥 BALL TAPT!');
+    if (e.type === 'drain' && current && state.ballsLeft > 0) message('💥 BALL TAPT!' + bonusText, 3000);
     if (e.type === 'launch') message('🚀 SKUTT UT!', 900);
   }
   if (current && state.launchCountdown !== null && state.launchCountdown <= 20) {

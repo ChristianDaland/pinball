@@ -1,0 +1,42 @@
+{
+  "_info": "Brettet for Gårdspinball. Koordinater i et 800x1300-brett (x 80–620 er spillefeltet). \"speil\": true lager en speilet kopi på andre siden. Se dokumentet, punkt 6.",
+
+  "walls": [
+    { "_info": "toppkile: sender ballen fra oppskytingen ned i rollover-banene", "points": [[178, 114], [242, 67], [214, 138]], "closed": true },
+    { "_info": "avviser oppe til venstre", "points": [[80, 420], [112, 520], [80, 560]], "closed": true },
+    { "_info": "kloss bak høyballene", "points": [[80, 590], [90, 598], [144, 760], [80, 782]], "closed": true },
+    { "_info": "kloss bak melkespannene", "points": [[620, 590], [604, 598], [566, 750], [620, 770]], "closed": true }
+  ],
+
+  "slingshots": [
+    { "a": [148.0, 911.7], "b": [224.4, 1021.7], "c": [268.4, 1045.7], "speil": true, "score": 10 }
+  ],
+
+  "popBumpers": [
+    { "x": 270, "y": 320, "r": 28, "score": 100, "icon": "🐓", "color": "#ff6b6b" },
+    { "x": 430, "y": 320, "r": 28, "score": 100, "icon": "🐑", "color": "#4ecdc4" },
+    { "x": 350, "y": 405, "r": 28, "score": 100, "icon": "🐔", "color": "#ffe66d" }
+  ],
+
+  "bumpers": [
+    { "x": 330, "y": 600, "r": 24, "score": 75, "icon": "🐴", "color": "#a8e6cf" }
+  ],
+
+  "rollovers": {
+    "y": 200, "lanes": [270, 350, 430], "guides": [230, 310, 390, 470], "guideTop": 165, "guideBottom": 225,
+    "letters": "HØY", "score": 50
+  },
+
+  "dropTargets": [
+    { "_info": "høyballer", "from": [96, 596], "to": [150, 758], "count": 3, "score": 200 }
+  ],
+
+  "standups": [
+    { "_info": "melkespann", "from": [596, 609], "to": [583, 661], "score": 150 },
+    { "from": [577, 685], "to": [564, 737], "score": 150 }
+  ],
+
+  "kickback": "venstre",
+
+  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5] }
+}

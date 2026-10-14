@@ -62,6 +62,19 @@ const PinballRenderer = (() => {
       hudText: '#f3e6c4',
       gameOver: '#ffcc55',
       gameOverGlow: '#ffaa22',
+      // Brettelementer fra board.json
+      popSkirt: '#3a2a18',            // "skjørtet" rundt pop bumpers
+      rolloverOn: '#ffcc55',          // rollover-knapp når bokstaven er tent
+      rolloverOff: '#3a2a14',
+      rolloverText: '#1a1005',
+      dropTarget: ['#ffe9a8', '#c9962f'], // drop target (lys, mørk)
+      dropSlot: 'rgba(0,0,0,0.55)',   // sporet når målet ligger nede
+      standup: ['#ffffff', '#9fb0c0'],
+      standupFlash: '#fff4c0',
+      lightOn: '#ff6b3d',             // innfelte lys: kickback, ball save, multiplikator
+      lightOff: 'rgba(60,30,20,0.6)',
+      lightText: '#ffffff',
+      callout: '#ffcc55',             // store meldinger midt på brettet (BALL SAVED!, ×3 …)
     },
     // Valgfrie tegnefunksjoner for pynt. g er et 2D-kontekst i brettkoordinater, api har hjelpere.
     decorateCabinet: null,    // (g, api) – tegnes oppå skapet (utskjæringer, logoer …)
@@ -443,8 +456,132 @@ const PinballRenderer = (() => {
     ctx.restore();
   }
 
+  // Farge og ikon kan settes per bumper i board.json; ellers brukes temaets lister
   function bumperColor(b, i) {
-    return (T.bumperColors && T.bumperColors[i]) || b.color || '#ff6b6b';
+    return b.color || (T.bumperColors && T.bumperColors[i]) || '#ff6b6b';
+  }
+
+  /* ── elementer fra board.json ── */
+  // Innfelt rundt lys med tekst (kickback, ball save, multiplikator)
+  function insertLight(x, y, r, text, on, now) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.arc(0, 0, r + 2, 0, Math.PI * 2); ctx.fill();
+    if (on) {
+      ctx.shadowColor = C.lightOn;
+      ctx.shadowBlur = (10 + 6 * Math.sin(now / 120)) * S;
+    }
+    ctx.fillStyle = on ? C.lightOn : C.lightOff;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = on ? C.lightText : 'rgba(255,255,255,0.35)';
+    ctx.font = `bold ${Math.round(r * 0.8)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 0, 1);
+    ctx.restore();
+  }
+
+  function drawRollovers(state, now) {
+    if (!layout || !layout.rollovers) return;
+    const tbl = state.table || {};
+    const blink = tbl.rolloverFlash && Math.floor(now / 120) % 2 === 0;
+    layout.rollovers.forEach((r, i) => {
+      const lit = tbl.rolloverFlash ? blink : (tbl.rollovers || [])[i];
+      ctx.save();
+      ctx.translate(r.x, r.y);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.arc(0, 0, r.r + 3, 0, Math.PI * 2); ctx.fill();
+      if (lit) { ctx.shadowColor = C.rolloverOn; ctx.shadowBlur = 14 * S; }
+      ctx.fillStyle = lit ? C.rolloverOn : C.rolloverOff;
+      ctx.beginPath(); ctx.arc(0, 0, r.r, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = lit ? C.rolloverText : 'rgba(255,255,255,0.4)';
+      ctx.font = `bold ${Math.round(r.r * 1.15)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(r.letter, 0, 1);
+      ctx.restore();
+    });
+  }
+
+  // Tykk, avrundet plate langs et linjestykke
+  function plate(x1, y1, x2, y2, width, colors, glow) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 16 * S; }
+    ctx.strokeStyle = colors[1];
+    ctx.lineWidth = width;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = colors[0];
+    ctx.lineWidth = width * 0.45;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTargets(state) {
+    if (!layout) return;
+    const tbl = state.table || {};
+    (layout.dropBanks || []).forEach((bank, bi) => {
+      bank.targets.forEach((t, ti) => {
+        const up = !tbl.drops || (tbl.drops[bi] || [])[ti] !== false;
+        if (up) {
+          plate(t.x1, t.y1, t.x2, t.y2, 10, C.dropTarget);
+        } else {
+          ctx.save();
+          ctx.strokeStyle = C.dropSlot;
+          ctx.lineWidth = 4;
+          ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(t.x1, t.y1); ctx.lineTo(t.x2, t.y2); ctx.stroke();
+          ctx.restore();
+        }
+      });
+    });
+    (layout.standups || []).forEach((s, i) => {
+      const flash = ((tbl.standupFlash || [])[i] || 0) > 0;
+      plate(s.x1, s.y1, s.x2, s.y2, 10, flash ? [C.standupFlash, C.standupFlash] : C.standup, flash ? C.standupFlash : null);
+    });
+  }
+
+  // Lys for kickback (i outlanen), ball save (mellom flipperne) og multiplikator (midt nede)
+  function drawLights(state, now) {
+    if (!layout) return;
+    const tbl = state.table || {};
+    (layout.kickbacks || []).forEach((k, i) => insertLight(k.x, k.y, 13, '⬆', (tbl.kickbacks || [])[i], now));
+    insertLight(350, 1176, 12, '↺', !!state.ballSave, now);
+    const mults = (state.multipliers || []).filter(m => m > 1);
+    mults.forEach((m, i) => {
+      const x = 350 + (i - (mults.length - 1) / 2) * 40;
+      insertLight(x, 880, 15, m + '×', (state.multiplier || 1) >= m, now);
+    });
+  }
+
+  // Store meldinger midt på brettet som blekner ut
+  let callouts = [];
+  function callout(text) {
+    callouts.push({ text, life: 90 });
+  }
+  function drawCallouts() {
+    callouts = callouts.filter(c => --c.life > 0);
+    callouts.forEach((c, i) => {
+      const a = Math.min(1, c.life / 30);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `bold ${44 + (90 - c.life) * 0.15}px sans-serif`;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      const y = 760 - i * 56;
+      ctx.strokeText(c.text, 350, y);
+      ctx.shadowColor = C.callout;
+      ctx.shadowBlur = 18 * S;
+      ctx.fillStyle = C.callout;
+      ctx.fillText(c.text, 350, y);
+      ctx.restore();
+    });
   }
 
   function drawBumpers(state) {
@@ -468,6 +605,15 @@ const PinballRenderer = (() => {
         ctx.fillStyle = glow;
         ctx.beginPath(); ctx.arc(0, 0, r + 26 * flash, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+      }
+
+      // Pop bumpers har et mørkt "skjørt" med en lysende ring
+      if (b.type === 'pop') {
+        ctx.fillStyle = C.popSkirt;
+        ctx.beginPath(); ctx.arc(0, 0, r + 6, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = flash > 0 ? '#ffffff' : color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, Math.PI * 2); ctx.stroke();
       }
 
       // Skive med kant
@@ -503,7 +649,7 @@ const PinballRenderer = (() => {
       ctx.font = `${r * 0.78}px serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(icons[i % icons.length], 0, r * 0.04);
+      ctx.fillText(b.icon || icons[i % icons.length], 0, r * 0.04);
 
       // Poeng under bumperen
       ctx.font = 'bold 14px sans-serif';
@@ -639,40 +785,42 @@ const PinballRenderer = (() => {
     ctx.restore();
   }
 
+  // Tittelen står øverst; poeng og spiller nederst mellom flipperne (toppen er brukt av rollovers)
   function drawHud(state) {
     const cx = 350;
     displayBox(cx - 130, 112, 260, 40, T.title, 24);
+    const yBox = 1200, yText = 1256, yInfo = 1278;
 
     const current = state.players.find(p => p.id === state.currentPlayer);
     if (current) {
       const score = (state.scores[current.id] || 0).toLocaleString('nb-NO');
-      displayBox(cx - 85, 162, 170, 36, score, 26);
+      displayBox(cx - 85, yBox, 170, 36, score, 26);
       const ballNo = state.ballsPerGame - state.ballsLeft + 1;
       ctx.save();
       ctx.font = 'bold 15px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx + 1, 223);
+      ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx + 1, yText + 1);
       ctx.fillStyle = C.hudText;
-      ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx, 222);
+      ctx.fillText(`${current.name}  ·  Ball ${ballNo}/${state.ballsPerGame}`, cx, yText);
       // Nedtelling når ballen ligger klar og spilleren ikke skyter den ut
       if (state.launchCountdown !== null && state.launchCountdown <= 20) {
         ctx.font = 'bold 15px sans-serif';
         ctx.fillStyle = C.label;
-        ctx.fillText(`Skyt ut ballen! ${state.launchCountdown} s før neste i køen`, cx, 244);
+        ctx.fillText(`Skyt ut ballen! ${state.launchCountdown} s før neste i køen`, cx, yInfo);
       } else if (current.away) {
         ctx.font = '14px sans-serif';
         ctx.fillStyle = '#ffb3b3';
-        ctx.fillText('Mistet forbindelsen – venter…', cx, 244);
+        ctx.fillText('Mistet forbindelsen – venter…', cx, yInfo);
       }
       ctx.restore();
     } else {
-      displayBox(cx - 115, 162, 230, 36, 'SKANN QR', 22);
+      displayBox(cx - 115, yBox, 230, 36, 'SKANN QR', 22);
       ctx.save();
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = C.hudText;
-      ctx.fillText('Skann QR-koden på hovedsiden for å spille', cx, 222);
+      ctx.fillText('Skann QR-koden på hovedsiden for å spille', cx, yText);
       ctx.restore();
     }
   }
@@ -743,6 +891,27 @@ const PinballRenderer = (() => {
         const s = layout.slingshots[e.i];
         addParticles((s.a.x + s.c.x) / 2, (s.a.y + s.c.y) / 2, C.slingParticles, 8);
       }
+      if (e.type === 'rollover' && layout) {
+        const r = layout.rollovers[e.i];
+        addParticles(r.x, r.y, C.rolloverOn, 8);
+      }
+      if (e.type === 'drop' && layout) {
+        const t = layout.dropBanks[e.bank].targets[e.target];
+        addParticles((t.x1 + t.x2) / 2, (t.y1 + t.y2) / 2, C.dropTarget[0], 12);
+      }
+      if (e.type === 'standup' && layout) {
+        const s = layout.standups[e.i];
+        addParticles((s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2, C.standupFlash, 10);
+      }
+      if (e.type === 'kickback' && layout) {
+        const k = layout.kickbacks.find(x => x.side === (data.ball.x < 350 ? 'left' : 'right')) || layout.kickbacks[0];
+        if (k) addParticles(k.x, k.y, C.lightOn, 24);
+        callout('KICKBACK!');
+      }
+      if (e.type === 'multiplier') { callout(`BONUS ${e.value}×`); ledFlash = 1; }
+      if (e.type === 'dropsComplete') { callout('KICKBACK TENT!'); ledFlash = 1; }
+      if (e.type === 'ballSaved') callout('BALL SAVED!');
+      if (e.type === 'bonus') callout(`BONUS ${e.bonus.toLocaleString('nb-NO')} × ${e.multiplier}`);
     }
   }
 
@@ -755,6 +924,9 @@ const PinballRenderer = (() => {
     ctx.setTransform(S, 0, 0, S, 0, 0);
 
     drawLeds(now);
+    drawRollovers(state, now);
+    drawLights(state, now);
+    drawTargets(state);
     drawSlingRubbers(state);
     drawPlunger(state);
     drawPlungerLabel(state, now);
@@ -763,6 +935,7 @@ const PinballRenderer = (() => {
     drawFlippers(state);
     drawBall(state);
     drawParticles();
+    drawCallouts();
     drawGameOver(state);
   }
 
