@@ -278,7 +278,7 @@ setInterval(() => {
     }
 
     // Starter nedtellingen hver gang ballen blir liggende klar for spilleren som har tur
-    if (game.playerId && physics.ball.ready) {
+    if (game.playerId && physics.ball.ready && physics.balls.length === 1) {
         if (readySince === null) readySince = Date.now();
     } else {
         readySince = null;
@@ -303,6 +303,7 @@ function buildGameState() {
         // "Game over" vises noen sekunder etter at et spill er ferdig
         gameOver: lastGame && Date.now() - lastGame.at < 4000 ? { name: lastGame.name, score: lastGame.score, machine: lastGame.machine } : null,
         ball: { x: physics.ball.x, y: physics.ball.y, r: physics.ball.r, ready: physics.ball.ready },
+        balls: physics.balls.map(b => ({ x: b.x, y: b.y, r: b.r, ready: b.ready, held: b.held })),
         flippers: {
             left: { angle: f.left.angle, pressed: f.left.pressed },
             right: { angle: f.right.angle, pressed: f.right.pressed },

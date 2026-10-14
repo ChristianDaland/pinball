@@ -74,6 +74,11 @@ PinballThemes['gard'] = {
       s.tone(f, 0.5, { vol: 0.22, delay: i * 0.1 });
       s.tone(f * 2.76, 0.25, { vol: 0.06, delay: i * 0.1 });
     }),
+    spin: (s) => s.noise(0.02, { vol: 0.25, freq: 3500, q: 3 }),
+    lock: (s) => { s.plong(131); s.tone(659, 0.3, { type: 'triangle', vol: 0.2, delay: 0.3 }); },
+    multiball: (s) => [262, 330, 392, 523, 659, 784, 1047].forEach((f, i) => s.tone(f, 0.25, { type: 'triangle', vol: 0.22, delay: i * 0.08 })),
+    jackpot: (s) => { [523, 659, 784, 1047].forEach((f, i) => { s.tone(f, 0.6, { vol: 0.25, delay: i * 0.12 }); s.tone(f * 2.76, 0.3, { vol: 0.06, delay: i * 0.12 }); }); },
+    ballLost: (s) => s.tone(330, 0.4, { type: 'triangle', vol: 0.2, slideTo: 165 }),
     bonus: (s) => { for (let i = 0; i < 8; i++) s.tone(700 + i * 60, 0.07, { type: 'triangle', vol: 0.15, delay: 0.3 + i * 0.08 }); },
     gameover: (s) => {
       [523, 494, 466, 440].forEach((f, i) => s.tone(f, 0.35, { type: 'square', vol: 0.08, delay: 0.8 + i * 0.28 }));

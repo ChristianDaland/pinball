@@ -9,12 +9,17 @@ const DEFAULT_RULES = {
     rolloverBonus: 100,          // det som legges til bonusen (telles opp × multiplikator når ballen er tapt)
     dropBonus: 100,
     standupBonus: 50,
+    locksForMultiball: 2,        // så mange scoop-treff (låste baller) som skal til for multiball
+    multiballExtraBalls: 2,      // ekstra baller i multiball (3 baller totalt)
+    multiballSaveSeconds: 10,    // baller som drainer i starten av multiball, kommer tilbake
+    jackpotScore: 5000,          // scoop-treff under multiball
 };
 
 function createRules(physics) {
     let R = DEFAULT_RULES;
     let multIdx = 0, bonus = 0;
     let saveUntil = 0, saveUsed = false;
+    let locks = 0, mbSaveUntil = 0;   // låste baller gjelder hele spillet
 
     function setBoardRules(rules) {
         R = { ...DEFAULT_RULES, ...(rules || {}) };
@@ -30,8 +35,12 @@ function createRules(physics) {
     // Nytt spill: alle lys av og alle mål opp
     function newGame() {
         resetBall();
+        locks = 0;
+        mbSaveUntil = 0;
         physics.resetTable();
     }
+
+    const multiballActive = () => physics.balls.length + physics.pendingBalls > 1;
 
     // Ball save starter første gang ballen skytes ut (en svak oppskyting som ruller tilbake teller ikke på nytt)
     function onLaunch(now) {
@@ -80,15 +89,48 @@ function createRules(physics) {
             bonus += R.standupBonus;
             events.push({ type: 'standup', i, points: s.score });
         }
+        for (const i of ev.spins) {
+            const s = physics.spinners[i];
+            points += s.score;
+            events.push({ type: 'spin', i, points: s.score });
+        }
+        for (const i of ev.scoops) {
+            if (multiballActive()) {
+                points += R.jackpotScore;
+                events.push({ type: 'jackpot', i, points: R.jackpotScore });
+                continue;
+            }
+            const s = physics.scoops[i];
+            points += s.score;
+            locks += 1;
+            if (locks >= R.locksForMultiball) {
+                locks = 0;
+                physics.addBalls(R.multiballExtraBalls);
+                mbSaveUntil = now + R.multiballSaveSeconds * 1000;
+                events.push({ type: 'multiball', i, points: s.score });
+            } else {
+                events.push({ type: 'lock', i, locks, needed: R.locksForMultiball, points: s.score });
+            }
+        }
+        if (ev.lostBalls > 0) {
+            if (now < mbSaveUntil) {
+                physics.addBalls(ev.lostBalls);
+                events.push({ type: 'ballSaved' });
+            } else {
+                events.push({ type: 'ballLost' });
+                if (!ev.drained && !multiballActive()) events.push({ type: 'multiballEnd' });
+            }
+        }
         if (ev.kickback) {
             points += R.kickbackScore;
             events.push({ type: 'kickback', points: R.kickbackScore });
         }
         if (ev.drained) {
-            if (now < saveUntil) {
+            if (now < saveUntil || now < mbSaveUntil) {
                 // Ball save: spilleren får ballen tilbake i kanalen
                 saveUntil = 0;
                 saveUsed = true;
+                mbSaveUntil = 0;
                 events.push({ type: 'ballSaved' });
             } else {
                 const multiplier = R.multipliers[multIdx];
@@ -105,7 +147,11 @@ function createRules(physics) {
     }
 
     function state(now) {
-        return { multiplier: R.multipliers[multIdx], multipliers: R.multipliers, bonus, ballSave: now < saveUntil };
+        return {
+            multiplier: R.multipliers[multIdx], multipliers: R.multipliers, bonus,
+            ballSave: now < saveUntil || now < mbSaveUntil,
+            locks, locksNeeded: R.locksForMultiball, jackpotLit: multiballActive(),
+        };
     }
 
     return { setBoardRules, newGame, onLaunch, handle, state };

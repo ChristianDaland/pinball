@@ -415,7 +415,8 @@ socket.on('state', (state) => {
   if (myTurn && navigator.vibrate) {
     for (const e of state.events || []) {
       if (e.type === 'kickback' || e.type === 'ballSaved') navigator.vibrate([60, 40, 60]);
-      if (e.type === 'multiplier' || e.type === 'dropsComplete') navigator.vibrate([40, 30, 40, 30, 120]);
+      if (e.type === 'multiplier' || e.type === 'dropsComplete' || e.type === 'lock') navigator.vibrate([40, 30, 40, 30, 120]);
+      if (e.type === 'multiball' || e.type === 'jackpot') navigator.vibrate([100, 50, 100, 50, 100, 50, 300]);
       if (e.type === 'drain') navigator.vibrate(300);
     }
   }

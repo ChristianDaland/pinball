@@ -136,6 +136,54 @@ for (const { id, board } of boards) {
         }
     });
 
+    test(`${id}: spinneren snurrer og gir treff når ballen går gjennom`, () => {
+        physics.loadBoard(board);
+        physics.spinners.forEach((s, i) => {
+            const mx = (s.x1 + s.x2) / 2, my = (s.y1 + s.y2) / 2;
+            place(mx, my + 30, 0, -12);
+            const ev = runUntil(e => e.spins.length > 0, 60);
+            assert.ok(ev && ev.spins.includes(i), `spinner ${i} snurret ikke`);
+        });
+    });
+
+    test(`${id}: scoopen fanger en rolig ball, holder den og skyter den ut`, () => {
+        physics.loadBoard(board);
+        physics.scoops.forEach((s, i) => {
+            physics.resetBall();
+            place(s.x, s.y - 30, 0, 2);
+            const ev = runUntil(e => e.scoops.length > 0, 60);
+            assert.ok(ev && ev.scoops[0] === i, `scoop ${i} fanget ikke ballen`);
+            assert.ok(ball.held);
+            runUntil(() => !ball.held, 120);
+            assert.ok(!ball.held && Math.hypot(ball.vx, ball.vy) > 5, 'ballen ble ikke skutt ut');
+        });
+    });
+
+    test(`${id}: en rask ball ruller over scoopen`, () => {
+        physics.loadBoard(board);
+        const s = physics.scoops[0];
+        place(s.x, s.y - 40, 0, 20);
+        const ev = runUntil(e => e.scoops.length > 0, 10);
+        assert.ok(!ev, 'scoopen fanget en ball i full fart');
+    });
+
+    test(`${id}: multiball – ekstra baller kommer ut, og bare den siste ballen gir "drained"`, () => {
+        physics.loadBoard(board);
+        place(350, 700, 0, 0);
+        physics.addBalls(2);
+        runUntil(() => physics.balls.length === 3 && physics.balls.every(b => !b.held), 200);
+        assert.strictEqual(physics.balls.length, 3);
+        // Send to baller rett i avløpet
+        physics.balls.slice(1).forEach(b => Object.assign(b, { x: 350, y: 1290, vx: 0, vy: 5 }));
+        Object.assign(physics.balls[0], { x: 350, y: 150, vx: 0, vy: 0 });
+        const ev = runUntil(e => e.lostBalls > 0, 30);
+        assert.ok(ev && !ev.drained, 'tap av en av flere baller skal ikke være "drained"');
+        assert.strictEqual(physics.balls.length, 1);
+        Object.assign(physics.balls[0], { x: 350, y: 1290, vx: 0, vy: 5 });
+        assert.ok(runUntil(e => e.drained, 30), 'siste ball ga ikke "drained"');
+        assert.ok(physics.ball.ready && physics.balls.length === 1);
+    });
+
     test(`${id}: ballen blir ikke sittende fast (30 min simulert spill)`, () => {
         physics.loadBoard(board);
         const rnd = seeded(id.length * 7919);

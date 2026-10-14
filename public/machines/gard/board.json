@@ -36,7 +36,15 @@
     { "from": [577, 685], "to": [564, 737], "score": 150 }
   ],
 
+  "spinners": [
+    { "_info": "vindmølla", "from": [130, 480], "to": [190, 480], "score": 25 }
+  ],
+
+  "scoops": [
+    { "_info": "høyloftet – ejectAngle i grader (90 = rett ned)", "x": 555, "y": 470, "score": 250, "ejectAngle": 122, "ejectSpeed": 9 }
+  ],
+
   "kickback": "venstre",
 
-  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5] }
+  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5], "locksForMultiball": 2, "jackpotScore": 5000 }
 }

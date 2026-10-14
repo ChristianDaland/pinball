@@ -1,9 +1,11 @@
 // Fysikk for pinball-brettet. Alle koordinater er i et 800x1300-brett,
 // og alle hastigheter er i piksler per tick (60 ticks i sekundet).
 //
-// FAST for alle maskiner: yttervegger, tak, oppskytingskanal, flippere og inlane-skinnene.
-// ALT ANNET (bumpere, slingshots, avvisere, rollovers, drop targets, standups, kickback)
-// kommer fra maskinens board.json via loadBoard(). Se public/machines/<id>/board.json.
+// FAST for alle maskiner: yttervegger, tak, oppskytingskanal, enveisport, flippere og inlane-skinnene.
+// ALT ANNET (bumpere, slingshots, avvisere, rollovers, drop targets, standups, kickback,
+// spinnere, scoops) kommer fra maskinens board.json via loadBoard(). Se public/machines/<id>/board.json.
+// Flere baller samtidig (multiball): balls[]; kollisjonsfunksjonene jobber på "ball", som settes
+// til hver ball etter tur.
 
 const W = 800, H = 1300;
 const GRAVITY = 0.11;
@@ -32,6 +34,13 @@ const TARGET_THICKNESS = 4;
 const DROP_RESET_TICKS = 90;      // så lenge alle drop targets ligger nede før de spretter opp
 const ROLLOVER_FLASH_TICKS = 60;  // blinking når alle rollovers er tent
 const KICKBACK_SPEED = 13;
+const SPINNER_SPIN = 0.045;       // hvor mye spinneren snurrer per fartsenhet
+const SPINNER_FRICTION = 0.975;
+const SCOOP_R = 16;
+const SCOOP_CAPTURE_SPEED = 14;   // går ballen fortere enn dette, ruller den over hullet
+const SCOOP_HOLD_TICKS = 50;      // så lenge scoopen holder ballen før den skyter den ut
+const MULTIBALL_EJECT_GAP = 40;   // ticks mellom hver ekstra ball i multiball
+const BALL_BOUNCE = 0.9;          // ball mot ball
 
 // Brettet er speilsymmetrisk om x = 350 (midt mellom venstre vegg og kanalen)
 const MID_X = 350;
@@ -78,7 +87,14 @@ const flippers = {
     right: { px: 470, py: 1100, rest: Math.PI - 0.5, up: Math.PI + 0.45, angle: Math.PI - 0.5, av: 0, pressed: false },
 };
 
-const ball = { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, r: BALL_R, ready: true };
+function makeBall() {
+    return { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, r: BALL_R, ready: true, held: false };
+}
+const mainBall = makeBall(); // hovedballen gjenbrukes alltid når det er én ball igjen
+let balls = [mainBall];
+let ball = mainBall;        // ballen som simuleres akkurat nå
+let pendingBalls = 0;       // ekstra baller som venter på å bli skutt ut fra scoopen (multiball)
+let pendingTimer = 0;
 
 /* ══════════════════════ BRETTET (fra board.json) ══════════════════════ */
 let walls = [];        // alle linjestykker ballen spretter av (faste + brettets)
@@ -90,6 +106,8 @@ let rolloverFlash = 0; // > 0 mens alle rollovers blinker etter at de ble fullf�
 let dropBanks = [];    // { score, targets: [{ x1, y1, x2, y2, up }], resetTimer }
 let standups = [];     // { x1, y1, x2, y2, score, flash }
 let kickbacks = [];    // { side: 'left'|'right', lit }
+let spinners = [];     // { x1, y1, x2, y2, score, angle, speed, half }
+let scoops = [];       // { x, y, r, ejectVx, ejectVy, held: ball|null, timer, cooldown }
 let layout = null;
 
 // Bygger brettet fra et board-objekt (innholdet i board.json). "speil": true lager en speilet kopi.
@@ -172,6 +190,23 @@ function loadBoard(board) {
         for (const [a, b] of ends) standups.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, score: s.score || 50, flash: 0 });
     }
 
+    // Spinnere: ballen passerer gjennom; spinneren snurrer etter hvor fort ballen gikk
+    spinners = [];
+    for (const s of board.spinners || []) {
+        const ends = [[pt(s.from), pt(s.to)]];
+        if (s.speil) ends.push([mirror(pt(s.from)), mirror(pt(s.to))]);
+        for (const [a, b] of ends) spinners.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, score: s.score || 25, angle: 0, speed: 0, half: 0 });
+    }
+
+    // Scoops: hull som fanger ballen og skyter den ut igjen i en fast retning (grader, 90 = rett ned)
+    scoops = [];
+    for (const s of board.scoops || []) {
+        const a = (s.ejectAngle === undefined ? 110 : s.ejectAngle) * Math.PI / 180;
+        const speed = s.ejectSpeed || 9;
+        scoops.push({ x: s.x, y: s.y, r: s.r || SCOOP_R, score: s.score || 250,
+            ejectVx: Math.cos(a) * speed, ejectVy: Math.sin(a) * speed, held: null, timer: 0, cooldown: 0 });
+    }
+
     const kb = board.kickback;
     kickbacks = (kb === 'begge' ? ['left', 'right'] : kb === 'venstre' ? ['left'] : kb === 'høyre' ? ['right'] : [])
         .map(side => ({ side, lit: false }));
@@ -190,6 +225,8 @@ function loadBoard(board) {
         dropBanks: dropBanks.map(b => ({ targets: b.targets.map(t => ({ x1: t.x1, y1: t.y1, x2: t.x2, y2: t.y2 })) })),
         standups: standups.map(s => ({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 })),
         kickbacks: kickbacks.map(k => ({ side: k.side, x: k.side === 'left' ? 104 : 2 * MID_X - 104, y: 1060 })),
+        spinners: spinners.map(s => ({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 })),
+        scoops: scoops.map(s => ({ x: s.x, y: s.y, r: s.r, ejectVx: s.ejectVx, ejectVy: s.ejectVy })),
         lane: { x: LANE_X, restY: LANE_REST_Y, dividerX: LANE_DIVIDER_X },
         gate: GATE,
         flipper: {
@@ -207,26 +244,43 @@ function resetTable() {
     rolloverFlash = 0;
     for (const bank of dropBanks) { bank.targets.forEach(t => { t.up = true; }); bank.resetTimer = 0; }
     for (const k of kickbacks) k.lit = false;
+    for (const s of spinners) { s.speed = 0; s.angle = 0; }
 }
 
-function resetBall() {
-    ball.x = LANE_X;
-    ball.y = LANE_REST_Y;
-    ball.vx = 0;
-    ball.vy = 0;
-    ball.ready = true;
+function placeInLane(b) {
+    Object.assign(b, { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, ready: true, held: false });
 }
+
+// Én ball, klar i kanalen (alltid samme ball-objekt, så andre kan holde en referanse til den)
+function resetBall() {
+    balls = [mainBall];
+    ball = mainBall;
+    placeInLane(ball);
+    pendingBalls = 0;
+    pendingTimer = 0;
+    for (const s of scoops) { s.held = null; s.timer = 0; s.cooldown = 0; }
+}
+
+// Multiball: legger til ekstra baller som skytes ut fra scoopen én etter én
+function addBalls(count) {
+    if (!scoops.length) return;
+    pendingBalls += count;
+    if (pendingTimer === 0) pendingTimer = 1;
+}
+
+const ballInLane = () => balls.find(b => b.ready) || null;
 
 // Skyter ballen opp kanalen. power (0–1) er hvor langt fjæra ble trukket. Uten power velges en
 // tilfeldig styrke. Returnerer false hvis ballen ikke ligger klar.
 const LAUNCH_MIN = 15.8, LAUNCH_MAX = 20;
 function launch(power) {
-    if (!ball.ready) return false;
+    const b = ballInLane();
+    if (!b) return false;
     if (typeof power !== 'number' || !isFinite(power)) power = 0.4 + Math.random() * 0.6;
     power = Math.max(0, Math.min(1, power));
-    ball.ready = false;
-    ball.vx = 0;
-    ball.vy = -(LAUNCH_MIN + power * (LAUNCH_MAX - LAUNCH_MIN));
+    b.ready = false;
+    b.vx = 0;
+    b.vy = -(LAUNCH_MIN + power * (LAUNCH_MAX - LAUNCH_MIN));
     return true;
 }
 
@@ -380,6 +434,99 @@ function checkKickbacks(events) {
     }
 }
 
+// Spinner: ballen krysser linjen (fra hvilken som helst side) → spinneren får fart etter ballens fart
+function checkSpinners(px, py) {
+    for (const s of spinners) {
+        const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+        const before = dx * (py - s.y1) - dy * (px - s.x1);
+        const after = dx * (ball.y - s.y1) - dy * (ball.x - s.x1);
+        if ((before < 0) === (after < 0)) continue;
+        // Krysset innenfor spinnerens bredde?
+        const lenSq = dx * dx + dy * dy;
+        const tm = ((ball.x - s.x1) * dx + (ball.y - s.y1) * dy) / lenSq;
+        if (tm < 0 || tm > 1) continue;
+        const speed = Math.hypot(ball.vx, ball.vy);
+        s.speed = Math.min(0.8, Math.max(s.speed, speed * SPINNER_SPIN));
+    }
+}
+
+function updateSpinners(events) {
+    spinners.forEach((s, i) => {
+        if (s.speed < 0.01) { s.speed = 0; return; }
+        s.angle += s.speed;
+        s.speed *= SPINNER_FRICTION;
+        const half = Math.floor(s.angle / Math.PI);
+        if (half > s.half) { s.half = half; events.spins.push(i); }
+    });
+}
+
+// Scoop: fanger ballen hvis den ikke går for fort
+function checkScoops(events) {
+    scoops.forEach((s, i) => {
+        if (s.held || s.cooldown > 0) return;
+        if (Math.hypot(ball.x - s.x, ball.y - s.y) >= s.r) return;
+        if (Math.hypot(ball.vx, ball.vy) > SCOOP_CAPTURE_SPEED) return;
+        Object.assign(ball, { x: s.x, y: s.y, vx: 0, vy: 0, held: true });
+        s.held = ball;
+        s.timer = SCOOP_HOLD_TICKS;
+        events.scoops.push(i);
+    });
+}
+
+function ejectFromScoop(s) {
+    const b = s.held;
+    const sp = Math.hypot(s.ejectVx, s.ejectVy);
+    Object.assign(b, {
+        held: false, vx: s.ejectVx, vy: s.ejectVy,
+        x: s.x + s.ejectVx / sp * (s.r + BALL_R + 1), y: s.y + s.ejectVy / sp * (s.r + BALL_R + 1),
+    });
+    s.held = null;
+    s.cooldown = 30;
+}
+
+// Scoopene teller ned og skyter ut; ekstra multiball-baller dukker opp i den første scoopen
+function updateScoops() {
+    for (const s of scoops) {
+        if (s.cooldown > 0) s.cooldown -= 1;
+        if (s.held && --s.timer <= 0) ejectFromScoop(s);
+    }
+    if (pendingBalls > 0 && --pendingTimer <= 0) {
+        const s = scoops[0];
+        if (s.held) { pendingTimer = 5; return; }
+        const b = makeBall();
+        Object.assign(b, { x: s.x, y: s.y, ready: false, held: true });
+        balls.push(b);
+        s.held = b;
+        s.timer = 15;
+        pendingBalls -= 1;
+        pendingTimer = pendingBalls > 0 ? MULTIBALL_EJECT_GAP : 0;
+    }
+}
+
+// Ball mot ball (like tunge): skyv fra hverandre og bytt fart langs treffretningen
+function collideBalls() {
+    for (let i = 0; i < balls.length; i++) {
+        const a = balls[i];
+        if (a.ready || a.held) continue;
+        for (let j = i + 1; j < balls.length; j++) {
+            const b = balls[j];
+            if (b.ready || b.held) continue;
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist >= 2 * BALL_R || dist === 0) continue;
+            const nx = dx / dist, ny = dy / dist, overlap = (2 * BALL_R - dist) / 2;
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+            const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+            if (vn < 0) {
+                const j2 = -(1 + BALL_BOUNCE) * vn / 2;
+                a.vx -= j2 * nx; a.vy -= j2 * ny;
+                b.vx += j2 * nx; b.vy += j2 * ny;
+            }
+        }
+    }
+}
+
 function flipperTip(f) {
     return { x: f.px + Math.cos(f.angle) * FLIPPER_LEN, y: f.py + Math.sin(f.angle) * FLIPPER_LEN };
 }
@@ -460,10 +607,12 @@ function updateDropBanks() {
 }
 
 // Kjører én tick. Returnerer hva som skjedde, så serveren kan gi poeng og spille lyder.
+// drained = den siste ballen er tapt; lostBalls = baller tapt mens andre fortsatt er i spill (multiball).
 function step() {
     const events = {
         hits: [], slings: [], rollovers: [], rolloversComplete: false,
-        drops: [], dropsComplete: [], standups: [], kickback: false, drained: false,
+        drops: [], dropsComplete: [], standups: [], kickback: false,
+        spins: [], scoops: [], lostBalls: 0, drained: false,
     };
 
     for (const b of bumpers) {
@@ -481,38 +630,56 @@ function step() {
         if (rolloverFlash === 0) rollovers.forEach(r => { r.lit = false; });
     }
     updateDropBanks();
+    updateSpinners(events);
+    updateScoops();
 
     for (let i = 0; i < SUBSTEPS; i++) {
         moveFlipper(flippers.left);
         moveFlipper(flippers.right);
-        if (ball.ready) continue;
+        for (const b of balls) {
+            if (b.ready || b.held) continue;
+            ball = b;
+            const px = ball.x, py = ball.y;
 
-        ball.vy += GRAVITY / SUBSTEPS;
-        ball.x += ball.vx / SUBSTEPS;
-        ball.y += ball.vy / SUBSTEPS;
+            ball.vy += GRAVITY / SUBSTEPS;
+            ball.x += ball.vx / SUBSTEPS;
+            ball.y += ball.vy / SUBSTEPS;
 
-        collideWalls();
-        collideGate();
-        collideSlingshots(events.slings);
-        collideDropTargets(events);
-        collideStandups(events);
-        collideFlipper(flippers.left);
-        collideFlipper(flippers.right);
-        collideBumpers(events.hits);
-        checkRollovers(events);
-        checkKickbacks(events);
-        clampSpeed();
+            collideWalls();
+            collideGate();
+            collideSlingshots(events.slings);
+            collideDropTargets(events);
+            collideStandups(events);
+            collideFlipper(flippers.left);
+            collideFlipper(flippers.right);
+            collideBumpers(events.hits);
+            checkRollovers(events);
+            checkKickbacks(events);
+            checkSpinners(px, py);
+            checkScoops(events);
+            clampSpeed();
 
-        // Ballen har falt tilbake til bunnen av kanalen: legg den klar for ny oppskyting
-        if (ball.x > LANE_DIVIDER_X && ball.y >= LANE_REST_Y && ball.vy > 0) {
+            // Ballen har falt tilbake til bunnen av kanalen: legg den klar for ny oppskyting
+            if (ball.x > LANE_DIVIDER_X && ball.y >= LANE_REST_Y && ball.vy > 0) {
+                placeInLane(ball);
+            }
+        }
+        if (balls.length > 1) collideBalls();
+    }
+
+    // Baller i avløpet
+    const lost = balls.filter(b => b.y > H + 20);
+    if (lost.length) {
+        balls = balls.filter(b => b.y <= H + 20);
+        if (balls.length === 0 && pendingBalls === 0) {
             resetBall();
+            events.drained = true;
+            events.lostBalls = lost.length - 1;
+        } else {
+            events.lostBalls = lost.length;
         }
     }
-
-    if (ball.y > H + 20) {
-        events.drained = true;
-        resetBall();
-    }
+    ball = balls[0] || ball;
     return events;
 }
 
@@ -525,18 +692,26 @@ function tableState() {
         standupFlash: standups.map(s => s.flash),
         kickbacks: kickbacks.map(k => k.lit),
         gateOpen: gateSwing > 0,
+        spinners: spinners.map(s => s.angle),
+        multiball: balls.length + pendingBalls > 1,
     };
 }
 
 loadBoard(null);
 
 module.exports = {
+    // "ball" er ballen i kanalen hvis det finnes en, ellers den første ballen
+    get ball() { return ballInLane() || balls[0] || ball; },
+    get balls() { return balls; },
+    get pendingBalls() { return pendingBalls; },
     get layout() { return layout; },
     get bumpers() { return bumpers; },
     get slingshots() { return slingshots; },
     get rollovers() { return rollovers; },
     get dropBanks() { return dropBanks; },
     get standups() { return standups; },
-    ball, flippers,
-    loadBoard, resetTable, step, launch, resetBall, setFlipper, rotateRollovers, tableState,
+    get spinners() { return spinners; },
+    get scoops() { return scoops; },
+    flippers,
+    loadBoard, resetTable, step, launch, resetBall, addBalls, setFlipper, rotateRollovers, tableState,
 };
