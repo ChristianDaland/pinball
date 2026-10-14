@@ -66,7 +66,8 @@ const machineStore = createMachineStore({
 });
 function addCustomMachine(c, i) {
     machines.push({ id: c.id, name: c.name, tagline: c.tagline || '', icon: c.icon || '🎰', order: 100 + i,
-        colors: c.colors || {}, board: c.board || {}, theme: c.theme, custom: true, published: !!c.published });
+        colors: c.colors || {}, board: c.board || {}, theme: c.theme, custom: true, published: !!c.published,
+        playfieldColor: c.playfieldColor || null });
 }
 
 const rules = createRules(physics);
@@ -117,7 +118,7 @@ async function boardInfo(id) {
 }
 app.get('/api/maskiner', (req, res) => {
     res.json(machines.map(m => ({ id: m.id, name: m.name, icon: m.icon, tagline: m.tagline, colors: m.colors,
-        theme: m.theme, custom: m.custom, published: m.published })));
+        theme: m.theme, custom: m.custom, published: m.published, playfieldColor: m.playfieldColor || null })));
 });
 
 const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -150,7 +151,7 @@ app.post('/api/maskiner', async (req, res) => {
     }
 });
 
-// Endre egen maskin: navn, ikon, slagord, farger, publisert
+// Endre egen maskin: navn, ikon, slagord, farger, utseende (theme), spillefelt-farge, publisert
 app.post('/api/maskiner/:id', async (req, res) => {
     const m = machines.find(x => x.id === req.params.id);
     if (!m) return res.status(404).json({ error: 'Ukjent maskin' });
@@ -163,6 +164,12 @@ app.post('/api/maskiner/:id', async (req, res) => {
         changes.colors = { ...m.colors };
         for (const k of ['bg', 'bg2', 'accent', 'text']) if (cleanColor(b.colors[k])) changes.colors[k] = b.colors[k];
     }
+    if (b.theme !== undefined) {
+        if (!machines.some(x => x.id === b.theme && !x.custom)) return res.status(400).json({ error: 'Ukjent utseende' });
+        changes.theme = b.theme;
+    }
+    // Spillefelt-farge: farger selve brettet (null = utseendets egen farge)
+    if (b.playfieldColor !== undefined) changes.playfieldColor = cleanColor(b.playfieldColor);
     if (b.published !== undefined) {
         changes.published = !!b.published;
         if (!changes.published && (game.machine === m.id && game.playerId)) return res.status(409).json({ error: 'Maskinen er i bruk akkurat nå' });
@@ -470,6 +477,7 @@ function buildGameState() {
         // Utseendet (theme.js) og tittelen på brettet – egne maskiner låner utseendet til en innebygd
         theme: (machines.find(m => m.id === game.machine) || {}).theme || game.machine,
         title: ((machines.find(m => m.id === game.machine) || {}).name || '').toUpperCase(),
+        playfieldColor: (machines.find(m => m.id === game.machine) || {}).playfieldColor || null,
         scores,
         currentPlayer: current ? current.id : null,
         ballsLeft: game.ballsLeft,

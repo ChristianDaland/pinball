@@ -103,10 +103,11 @@ aside h2:first-child { margin-top: 0; }
 #wrap { position: relative; }
 #wrap canvas { display: block; }
 #overlay { position: absolute; left: 0; top: 0; cursor: crosshair; }
+body.testing #overlay { cursor: pointer; }
 #overlay.select { cursor: default; }
 #overlay.drag { cursor: grabbing; }
 .coords { position: absolute; left: 10px; bottom: 8px; color: #8a8fa8; font-size: 12px; }
-.playhint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75);
+.playhint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(74,63,143,0.95); z-index: 5;
   padding: 6px 14px; border-radius: 999px; font-size: 13px; display: none; }
 body.testing .playhint { display: block; }
 
@@ -169,7 +170,7 @@ body.testing .playhint { display: block; }
       <canvas id="overlay" class="select"></canvas>
     </div>
     <div class="coords" id="coords"></div>
-    <div class="playhint">A/← og D/→ = flippere · hold mellomrom = skyt ut · Esc = stopp</div>
+    <div class="playhint">PRØVESPILL · A/← og D/→ = flippere · hold mellomrom = skyt ut · Esc eller klikk på brettet = tilbake til redigering</div>
   </div>
 
   <aside class="right">
@@ -489,7 +490,7 @@ function changed() {
 
 let drag = null;   // { kind: 'handle'|'body', handle, start, last }
 overlay.addEventListener('pointerdown', (ev) => {
-  if (testing) return;
+  if (testing) stopTest();   // klikk på brettet under prøvespill: tilbake til redigering
   const p = boardPos(ev);
   if (tool !== 'select') {
     remember();
@@ -596,6 +597,7 @@ for (const [key, T] of Object.entries(TYPES)) {
 }
 document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 function setTool(t) {
+  stopTest();
   tool = t;
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   overlay.classList.toggle('select', t === 'select');
@@ -609,7 +611,7 @@ function renderList() {
     const d = document.createElement('div');
     d.textContent = elementName(e);
     if (selected && selected.type === e.type && selected.index === e.index) d.className = 'sel';
-    d.addEventListener('click', () => { selected = { type: e.type, index: e.index }; renderProps(); renderList(); });
+    d.addEventListener('click', () => { stopTest(); selected = { type: e.type, index: e.index }; renderProps(); renderList(); });
     box.appendChild(d);
   }
 }
@@ -773,8 +775,8 @@ async function loadMachine(id) {
   stopTest();
   machineId = id;
   const m = machineInfo();
-  const [info, theme] = await Promise.all([fetch(`/api/brett/${id}`).then(r => r.json()), loadTheme(m.theme)]);
-  PinballRenderer.setTheme(m.custom ? { ...theme, title: m.name.toUpperCase() } : theme);
+  const info = await fetch(`/api/brett/${id}`).then(r => r.json());
+  await applyLook(m);
   renderMachineSettings();
   document.body.style.background = '#12131a';
   showInfo(info);
@@ -841,11 +843,22 @@ function renderMachineSettings() {
     <div class="field"><label>Navn</label><input type="text" data-m="name" maxlength="24" style="width:130px"></div>
     <div class="field"><label>Ikon</label><input type="text" data-m="icon" maxlength="8" style="width:60px"></div>
     <div class="field"><label>Slagord</label><input type="text" data-m="tagline" maxlength="60" style="width:130px"></div>
-    <div class="field"><label>Lysfarge</label><input type="color" data-c="accent" value="${c.accent || '#ffe66d'}"></div>
-    <div class="field"><label>Bakgrunn 1 / 2</label><span><input type="color" data-c="bg" value="${c.bg || '#1a1a2e'}"><input type="color" data-c="bg2" value="${c.bg2 || '#16213e'}"></span></div>
+    <div class="field"><label>Utseende</label><select id="m-theme"></select></div>
+    <div class="field"><label>Spillefelt-farge</label><span><input type="color" id="m-playfield" value="${m.playfieldColor || '#1f4d29'}">
+      <button id="m-playfield-reset" title="Bruk utseendets egen farge" ${m.playfieldColor ? '' : 'disabled'}>↺</button></span></div>
+    <p class="hint">Utseende og spillefelt-farge gjelder selve brettet.</p>
+    <div class="field"><label>Lysfarge (skjermer)</label><input type="color" data-c="accent" value="${c.accent || '#ffe66d'}"></div>
+    <div class="field"><label>Bakgrunn (skjermer)</label><span><input type="color" data-c="bg" value="${c.bg || '#1a1a2e'}"><input type="color" data-c="bg2" value="${c.bg2 || '#16213e'}"></span></div>
     <div class="field"><button id="btn-publish" class="${m.published ? '' : 'primary'}">${m.published ? 'Skjul fra hovedsiden' : '🚀 Publiser'}</button>
       <button id="btn-delete-machine">Slett maskin</button></div>
-    <p class="hint">Lysfarge og bakgrunn brukes på hovedsiden, toppskjermen og mobilen. Brettet har utseendet du valgte da maskinen ble laget.</p>`;
+    <p class="hint">«Skjermer»-fargene brukes på hovedsiden, toppskjermen og mobilen.</p>`;
+  const themeSel = box.querySelector('#m-theme');
+  for (const b of machineInfos.filter(x => !x.custom)) themeSel.insertAdjacentHTML('beforeend', `<option value="${b.id}">${b.icon} som ${b.name}</option>`);
+  themeSel.value = m.theme;
+  themeSel.addEventListener('change', () => updateMachine({ theme: themeSel.value }));
+  box.querySelector('#m-playfield').addEventListener('input', (ev) => applyLook({ ...m, playfieldColor: ev.target.value }));
+  box.querySelector('#m-playfield').addEventListener('change', (ev) => updateMachine({ playfieldColor: ev.target.value }));
+  box.querySelector('#m-playfield-reset').addEventListener('click', () => updateMachine({ playfieldColor: null }));
   box.querySelector('[data-m=name]').value = m.name;
   box.querySelector('[data-m=icon]').value = m.icon;
   box.querySelector('[data-m=tagline]').value = m.tagline || '';
@@ -867,12 +880,18 @@ function renderMachineSettings() {
   });
 }
 
+// Tegner brettet med maskinens utseende (egne maskiner: egen tittel og evt. egen spillefelt-farge)
+async function applyLook(m) {
+  const theme = await loadTheme(m.theme);
+  PinballRenderer.setTheme(m.custom ? PinballRenderer.customize(theme, { title: m.name.toUpperCase(), playfieldColor: m.playfieldColor }) : theme);
+  document.body.style.background = '#12131a';
+}
+
 async function updateMachine(changes) {
   try {
     await post(`/api/maskiner/${machineId}`, changes);
     await refreshMachines(machineId);
-    const m = machineInfo();
-    PinballRenderer.setTheme({ ...(await loadTheme(m.theme)), title: m.name.toUpperCase() });
+    await applyLook(machineInfo());
     renderMachineSettings();
     if (changes.published !== undefined) setStatus(changes.published ? '🚀 Publisert – maskinen vises nå på hovedsiden' : 'Skjult fra hovedsiden');
   } catch (err) {

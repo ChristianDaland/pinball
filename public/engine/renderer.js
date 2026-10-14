@@ -1125,5 +1125,16 @@ const PinballRenderer = (() => {
     drawGameOver(state);
   }
 
-  return { init, resize, setLayout, setTheme, handleEvents, frame, BW, BH, get theme() { return T; } };
+  // Lager et tema for en egen maskin: lånt utseende, egen tittel og eventuelt egen spillefelt-farge
+  function customize(theme, { title, playfieldColor } = {}) {
+    const t = { ...(theme || {}) };
+    if (title) t.title = title;
+    if (playfieldColor && /^#[0-9a-fA-F]{6}$/.test(playfieldColor)) {
+      const c = playfieldColor;
+      t.colors = { ...(t.colors || {}), playfield: [darken(c, 30), c, lighten(c, 12), darken(c, 55)] };
+    }
+    return t;
+  }
+
+  return { init, resize, setLayout, setTheme, customize, handleEvents, frame, BW, BH, get theme() { return T; } };
 })();
