@@ -1,7 +1,7 @@
-// GårdsPengBall: treskap med utskjæringer, grønn eng, gårdsdyr på bumperne.
+// Gårdspinball: treskap med utskjæringer, grønn eng, gårdsdyr på bumperne.
 // Fargene som ikke står her, er standardverdiene i engine/renderer.js (som er laget for dette temaet).
 PinballThemes['gard'] = {
-  title: 'GÅRDSPENGBALL',
+  title: 'GÅRDSPINBALL',
   bumperIcons: ['🐓', '🐑', '🐔', '🐴', '🐄'],
   bumperColors: ['#ff6b6b', '#4ecdc4', '#ffe66d', '#a8e6cf', '#ff8b94'],
 

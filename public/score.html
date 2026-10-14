@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pinball – poengtavle</title>
 <script src="/socket.io/socket.io.js"></script>
+<script src="/engine/screens.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 /* Toppskjermen ("backglass") over brettet. Farger og navn kommer fra maskinens machine.json. */
@@ -200,6 +201,8 @@ body {
 
 <script>
 const socket = io();
+PinballScreens.announce('score');
+PinballScreens.addFullscreenButton();
 let machines = [];
 let machineId = null;
 let shownScore = 0, targetScore = 0;

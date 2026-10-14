@@ -34,12 +34,15 @@ canvas { display: block; }
 <script src="/socket.io/socket.io.js"></script>
 <script src="/engine/sound.js"></script>
 <script src="/engine/renderer.js"></script>
+<script src="/engine/screens.js"></script>
 <script>
 // Selve maskinen: tegner brettet med temaet til maskinen som er i bruk.
 // Alt utseende ligger i public/machines/<id>/theme.js, all tegning i engine/renderer.js.
 const canvas = document.getElementById('game');
 const socket = io();
 PinballRenderer.init(canvas);
+PinballScreens.announce('brett');
+PinballScreens.addFullscreenButton();
 
 /* ══════════════════════ LYD ══════════════════════ */
 const soundBtn = document.getElementById('sound-btn');

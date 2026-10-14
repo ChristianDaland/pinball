@@ -147,11 +147,41 @@ h1 {
 .queue-row .what { opacity: 0.75; }
 .empty { text-align: center; color: #667; font-style: italic; padding: 6px; }
 
-/* Mobil: trykk på et kort i stedet for å skanne */
-@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+/* Skjermene: knapper som åpner brettet og poengtavla i egne vinduer (bare på PC) */
+.screens {
+  max-width: 900px;
+  margin: 0 auto 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.screens-label { color: #aab; font-size: 0.95em; margin-right: 4px; }
+.screens button {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-size: 0.95em;
+  font-weight: bold;
+  cursor: pointer;
+}
+.screens button:hover { background: rgba(255,255,255,0.14); }
+.screens button.is-open { border-color: #4ade80; color: #4ade80; }
+.screens button.primary { background: #ffe66d; color: #000; border-color: #ffe66d; }
+.screens-msg { flex-basis: 100%; text-align: center; color: #ffb3b3; font-size: 0.9em; min-height: 1.2em; }
+
+/* Smale vinduer: én kolonne */
+@media (max-width: 760px) {
   body { padding: 18px 14px 30px; }
   .machines { grid-template-columns: 1fr; gap: 20px; }
-  .qr, .scan { display: none; }
+}
+
+/* Mobil (berøringsskjerm): trykk på et kort i stedet for å skanne, og ingen skjermknapper */
+@media (pointer: coarse) {
+  .qr, .scan, .screens { display: none; }
   .play-btn { display: inline-block; }
   .subtitle .big-screen { display: none; }
   .subtitle .small-screen { display: inline; }
@@ -169,6 +199,14 @@ h1 {
   </div>
 </header>
 
+<div class="screens" id="screens">
+  <span class="screens-label">🖥️ Skjermer:</span>
+  <button id="open-brett">🎰 Åpne brettet</button>
+  <button id="open-score">🏆 Åpne poengtavla</button>
+  <button id="open-both" class="primary">Åpne begge</button>
+  <div class="screens-msg" id="screens-msg"></div>
+</div>
+
 <div class="now-playing" id="now-playing">Kobler til…</div>
 
 <div class="machines" id="machines"></div>
@@ -178,9 +216,46 @@ h1 {
   <div id="queue"><div class="empty">Ingen i kø</div></div>
 </div>
 
+<script src="/engine/screens.js"></script>
 <script>
 const socket = io();
 let machines = [];
+
+/* ── skjermene (brett og poengtavle) ── */
+const screenBtns = { brett: document.getElementById('open-brett'), score: document.getElementById('open-score') };
+const screenText = {
+  brett: ['🎰 Åpne brettet', '✅ Brettet er åpent'],
+  score: ['🏆 Åpne poengtavla', '✅ Poengtavla er åpen'],
+};
+const bothBtn = document.getElementById('open-both');
+const screensMsg = document.getElementById('screens-msg');
+
+function openScreen(screen) {
+  const ok = PinballScreens.open(screen);
+  if (!ok) screensMsg.textContent = 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden, eller trykk på knappen igjen.';
+  return ok;
+}
+screenBtns.brett.addEventListener('click', () => openScreen('brett'));
+screenBtns.score.addEventListener('click', () => openScreen('score'));
+// Mange nettlesere slipper bare gjennom ett nytt vindu per klikk. Blir det andre blokkert,
+// står knappen for det igjen, så det holder med ett klikk til.
+bothBtn.addEventListener('click', () => {
+  screensMsg.textContent = '';
+  if (openScreen('brett') && !PinballScreens.open('score')) {
+    screensMsg.textContent = 'Brettet er åpnet. Trykk «Åpne poengtavla» for å åpne poengtavla også.';
+  }
+});
+
+PinballScreens.watch((open) => {
+  for (const s of ['brett', 'score']) {
+    screenBtns[s].textContent = screenText[s][open[s] ? 1 : 0];
+    screenBtns[s].classList.toggle('is-open', open[s]);
+    screenBtns[s].title = open[s] ? 'Hent fram vinduet' : 'Åpne i eget vindu – dra det over til riktig skjerm';
+  }
+  bothBtn.style.display = open.brett || open.score ? 'none' : '';
+  if (open.brett && open.score) screensMsg.textContent = '';
+});
+
 let lastQueue = null, lastNow = null;
 
 // Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML

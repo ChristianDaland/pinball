@@ -1,8 +1,8 @@
-// RomPengBall: metallskap med nagler, stjernehimmel med tåker og planeter, neon-lys.
+// RomPinball: metallskap med nagler, stjernehimmel med tåker og planeter, neon-lys.
 // Dette temaet setter (nesten) alle verdiene, så det er et godt utgangspunkt å kopiere
 // når du lager en ny maskin. Se DEFAULT_THEME i engine/renderer.js for forklaring.
 PinballThemes['rommet'] = {
-  title: 'ROMPENGBALL',
+  title: 'ROMPINBALL',
   bumperIcons: ['🪐', '🌍', '☀️', '🌙', '☄️'],
   bumperColors: ['#b26bff', '#3fa9ff', '#ffd23f', '#9fb3ff', '#ff6b3d'],
 
