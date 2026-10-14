@@ -3,7 +3,7 @@
 //
 // FAST for alle maskiner: yttervegger, tak, oppskytingskanal, enveisport, flippere og inlane-skinnene.
 // ALT ANNET (bumpere, slingshots, avvisere, rollovers, drop targets, standups, kickback,
-// spinnere, scoops) kommer fra maskinens board.json via loadBoard(). Se public/machines/<id>/board.json.
+// spinnere, scoops, ramper) kommer fra maskinens board.json via loadBoard(). Se public/machines/<id>/board.json.
 // Flere baller samtidig (multiball): balls[]; kollisjonsfunksjonene jobber på "ball", som settes
 // til hver ball etter tur.
 
@@ -41,6 +41,9 @@ const SCOOP_CAPTURE_SPEED = 14;   // går ballen fortere enn dette, ruller den o
 const SCOOP_HOLD_TICKS = 50;      // så lenge scoopen holder ballen før den skyter den ut
 const MULTIBALL_EJECT_GAP = 40;   // ticks mellom hver ekstra ball i multiball
 const BALL_BOUNCE = 0.9;          // ball mot ball
+const RAMP_SPEED = 9;             // fart langs rampen (piksler per tick)
+const RAMP_MIN_SPEED = 8;         // minste fart inn i rampen; saktere ruller ballen ned igjen
+const RAMP_EXIT_SPEED = 5;
 
 // Brettet er speilsymmetrisk om x = 350 (midt mellom venstre vegg og kanalen)
 const MID_X = 350;
@@ -88,7 +91,7 @@ const flippers = {
 };
 
 function makeBall() {
-    return { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, r: BALL_R, ready: true, held: false };
+    return { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, r: BALL_R, ready: true, held: false, ramp: null };
 }
 const mainBall = makeBall(); // hovedballen gjenbrukes alltid når det er én ball igjen
 let balls = [mainBall];
@@ -108,6 +111,7 @@ let standups = [];     // { x1, y1, x2, y2, score, flash }
 let kickbacks = [];    // { side: 'left'|'right', lit }
 let spinners = [];     // { x1, y1, x2, y2, score, angle, speed, half }
 let scoops = [];       // { x, y, r, ejectVx, ejectVy, held: ball|null, timer, cooldown }
+let ramps = [];        // { a, b, dirX, dirY, path: [{x,y}], lengths, total, score, minSpeed }
 let layout = null;
 
 // Bygger brettet fra et board-objekt (innholdet i board.json). "speil": true lager en speilet kopi.
@@ -207,6 +211,26 @@ function loadBoard(board) {
             ejectVx: Math.cos(a) * speed, ejectVy: Math.sin(a) * speed, held: null, timer: 0, cooldown: 0 });
     }
 
+    // Ramper: inngang (linjestykke a–b) og en bane over brettet som ender i en inlane.
+    // Ballen må krysse inngangen i retning av banens første punkt, med nok fart.
+    ramps = [];
+    for (const r of board.ramps || []) {
+        const a = pt(r.entrance[0]), b = pt(r.entrance[1]);
+        const path = r.path.map(pt);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const dl = Math.hypot(path[0].x - mid.x, path[0].y - mid.y);
+        const lengths = [];
+        let total = 0;
+        for (let i = 1; i < path.length; i++) {
+            const l = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+            lengths.push(l);
+            total += l;
+        }
+        ramps.push({ a, b, dirX: (path[0].x - mid.x) / dl, dirY: (path[0].y - mid.y) / dl, path, lengths, total,
+            score: r.score || 500, minSpeed: r.minSpeed || RAMP_MIN_SPEED, speed: r.speed || RAMP_SPEED,
+            exitSpeed: r.exitSpeed || RAMP_EXIT_SPEED });
+    }
+
     const kb = board.kickback;
     kickbacks = (kb === 'begge' ? ['left', 'right'] : kb === 'venstre' ? ['left'] : kb === 'høyre' ? ['right'] : [])
         .map(side => ({ side, lit: false }));
@@ -227,6 +251,7 @@ function loadBoard(board) {
         kickbacks: kickbacks.map(k => ({ side: k.side, x: k.side === 'left' ? 104 : 2 * MID_X - 104, y: 1060 })),
         spinners: spinners.map(s => ({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 })),
         scoops: scoops.map(s => ({ x: s.x, y: s.y, r: s.r, ejectVx: s.ejectVx, ejectVy: s.ejectVy })),
+        ramps: ramps.map(r => ({ entrance: [r.a, r.b], path: r.path })),
         lane: { x: LANE_X, restY: LANE_REST_Y, dividerX: LANE_DIVIDER_X },
         gate: GATE,
         flipper: {
@@ -248,7 +273,7 @@ function resetTable() {
 }
 
 function placeInLane(b) {
-    Object.assign(b, { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, ready: true, held: false });
+    Object.assign(b, { x: LANE_X, y: LANE_REST_Y, vx: 0, vy: 0, ready: true, held: false, ramp: null });
 }
 
 // Én ball, klar i kanalen (alltid samme ball-objekt, så andre kan holde en referanse til den)
@@ -460,6 +485,49 @@ function updateSpinners(events) {
     });
 }
 
+// Rampe-inngang: ballen krysser inngangen i riktig retning. Fort nok → opp på rampen;
+// for sakte → ruller ned igjen (spretter tilbake).
+function checkRamps(px, py, events) {
+    ramps.forEach((r, i) => {
+        const dx = r.b.x - r.a.x, dy = r.b.y - r.a.y;
+        const before = dx * (py - r.a.y) - dy * (px - r.a.x);
+        const after = dx * (ball.y - r.a.y) - dy * (ball.x - r.a.x);
+        if ((before < 0) === (after < 0)) return;
+        const tm = ((ball.x - r.a.x) * dx + (ball.y - r.a.y) * dy) / (dx * dx + dy * dy);
+        if (tm < 0 || tm > 1) return;
+        const along = ball.vx * r.dirX + ball.vy * r.dirY;
+        if (along <= 0) return;                    // på vei ut av inngangen – ingenting skjer
+        if (along >= r.minSpeed) {
+            ball.ramp = { i, s: 0 };
+            events.rampEnter.push(i);
+        } else {
+            // For sakte: ruller tilbake ut av inngangen
+            ball.x = px; ball.y = py;
+            ball.vx -= 1.6 * along * r.dirX;
+            ball.vy -= 1.6 * along * r.dirY;
+        }
+    });
+}
+
+// Ball på rampen følger banen med fast fart, og slippes ned ved enden
+function moveOnRamp(b, events) {
+    const i = b.ramp.i, r = ramps[i];
+    b.ramp.s += r.speed;
+    if (b.ramp.s >= r.total) {
+        const p = r.path[r.path.length - 1], q = r.path[r.path.length - 2];
+        const l = Math.hypot(p.x - q.x, p.y - q.y);
+        Object.assign(b, { x: p.x, y: p.y, vx: (p.x - q.x) / l * r.exitSpeed, vy: (p.y - q.y) / l * r.exitSpeed, ramp: null });
+        events.ramps.push(i);   // rampeskudd fullført
+        return;
+    }
+    let s = b.ramp.s, k = 0;
+    while (k < r.lengths.length - 1 && s > r.lengths[k]) { s -= r.lengths[k]; k++; }
+    const p0 = r.path[k], p1 = r.path[k + 1], f = s / r.lengths[k];
+    const nx = p0.x + (p1.x - p0.x) * f, ny = p0.y + (p1.y - p0.y) * f;
+    b.vx = nx - b.x; b.vy = ny - b.y;
+    b.x = nx; b.y = ny;
+}
+
 // Scoop: fanger ballen hvis den ikke går for fort
 function checkScoops(events) {
     scoops.forEach((s, i) => {
@@ -507,10 +575,10 @@ function updateScoops() {
 function collideBalls() {
     for (let i = 0; i < balls.length; i++) {
         const a = balls[i];
-        if (a.ready || a.held) continue;
+        if (a.ready || a.held || a.ramp) continue;
         for (let j = i + 1; j < balls.length; j++) {
             const b = balls[j];
-            if (b.ready || b.held) continue;
+            if (b.ready || b.held || b.ramp) continue;
             const dx = b.x - a.x, dy = b.y - a.y;
             const dist = Math.hypot(dx, dy);
             if (dist >= 2 * BALL_R || dist === 0) continue;
@@ -612,7 +680,7 @@ function step() {
     const events = {
         hits: [], slings: [], rollovers: [], rolloversComplete: false,
         drops: [], dropsComplete: [], standups: [], kickback: false,
-        spins: [], scoops: [], lostBalls: 0, drained: false,
+        spins: [], scoops: [], rampEnter: [], ramps: [], lostBalls: 0, drained: false,
     };
 
     for (const b of bumpers) {
@@ -632,12 +700,13 @@ function step() {
     updateDropBanks();
     updateSpinners(events);
     updateScoops();
+    for (const b of balls) if (b.ramp) moveOnRamp(b, events);
 
     for (let i = 0; i < SUBSTEPS; i++) {
         moveFlipper(flippers.left);
         moveFlipper(flippers.right);
         for (const b of balls) {
-            if (b.ready || b.held) continue;
+            if (b.ready || b.held || b.ramp) continue;
             ball = b;
             const px = ball.x, py = ball.y;
 
@@ -657,6 +726,8 @@ function step() {
             checkKickbacks(events);
             checkSpinners(px, py);
             checkScoops(events);
+            checkRamps(px, py, events);
+            if (ball.ramp) continue;
             clampSpeed();
 
             // Ballen har falt tilbake til bunnen av kanalen: legg den klar for ny oppskyting
@@ -712,6 +783,7 @@ module.exports = {
     get standups() { return standups; },
     get spinners() { return spinners; },
     get scoops() { return scoops; },
+    get ramps() { return ramps; },
     flippers,
     loadBoard, resetTable, step, launch, resetBall, addBalls, setFlipper, rotateRollovers, tableState,
 };

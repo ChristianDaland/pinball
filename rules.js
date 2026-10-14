@@ -12,7 +12,10 @@ const DEFAULT_RULES = {
     locksForMultiball: 2,        // så mange scoop-treff (låste baller) som skal til for multiball
     multiballExtraBalls: 2,      // ekstra baller i multiball (3 baller totalt)
     multiballSaveSeconds: 10,    // baller som drainer i starten av multiball, kommer tilbake
-    jackpotScore: 5000,          // scoop-treff under multiball
+    jackpotScore: 5000,          // scoop-treff under multiball (startverdi)
+    rampComboSeconds: 4,         // rampeskudd innen så kort tid etter forrige gir combo 2×, 3× …
+    rampJackpotAdd: 1000,        // hvert rampeskudd under multiball øker jackpoten
+    rampsForExtraBall: 5,        // så mange rampeskudd i ett spill gir ekstra ball (0 = aldri)
 };
 
 function createRules(physics) {
@@ -20,9 +23,12 @@ function createRules(physics) {
     let multIdx = 0, bonus = 0;
     let saveUntil = 0, saveUsed = false;
     let locks = 0, mbSaveUntil = 0;   // låste baller gjelder hele spillet
+    let jackpotValue = DEFAULT_RULES.jackpotScore;
+    let rampCount = 0, lastRampAt = -Infinity, combo = 0;
 
     function setBoardRules(rules) {
         R = { ...DEFAULT_RULES, ...(rules || {}) };
+        jackpotValue = R.jackpotScore;
     }
 
     function resetBall() {
@@ -37,6 +43,10 @@ function createRules(physics) {
         resetBall();
         locks = 0;
         mbSaveUntil = 0;
+        jackpotValue = R.jackpotScore;
+        rampCount = 0;
+        lastRampAt = -Infinity;
+        combo = 0;
         physics.resetTable();
     }
 
@@ -48,9 +58,9 @@ function createRules(physics) {
     }
 
     // Gjør hendelsene fra én fysikk-tick om til poeng og meldinger.
-    // Returnerer { points, events, ballLost } – ballLost betyr at spilleren mister ballen.
+    // Returnerer { points, events, ballLost, extraBall } – ballLost betyr at spilleren mister ballen.
     function handle(ev, now) {
-        let points = 0, ballLost = false;
+        let points = 0, ballLost = false, extraBall = false;
         const events = [];
         for (const i of ev.hits) {
             const b = physics.bumpers[i];
@@ -96,8 +106,8 @@ function createRules(physics) {
         }
         for (const i of ev.scoops) {
             if (multiballActive()) {
-                points += R.jackpotScore;
-                events.push({ type: 'jackpot', i, points: R.jackpotScore });
+                points += jackpotValue;
+                events.push({ type: 'jackpot', i, points: jackpotValue });
                 continue;
             }
             const s = physics.scoops[i];
@@ -107,9 +117,27 @@ function createRules(physics) {
                 locks = 0;
                 physics.addBalls(R.multiballExtraBalls);
                 mbSaveUntil = now + R.multiballSaveSeconds * 1000;
+                jackpotValue = R.jackpotScore;
                 events.push({ type: 'multiball', i, points: s.score });
             } else {
                 events.push({ type: 'lock', i, locks, needed: R.locksForMultiball, points: s.score });
+            }
+        }
+        for (const i of ev.rampEnter) events.push({ type: 'rampEnter', i });
+        for (const i of ev.ramps) {
+            combo = now - lastRampAt <= R.rampComboSeconds * 1000 ? combo + 1 : 1;
+            lastRampAt = now;
+            const p = physics.ramps[i].score * combo;
+            points += p;
+            rampCount += 1;
+            events.push({ type: 'ramp', i, combo, count: rampCount, points: p });
+            if (multiballActive()) {
+                jackpotValue += R.rampJackpotAdd;
+                events.push({ type: 'jackpotUp', value: jackpotValue });
+            }
+            if (R.rampsForExtraBall > 0 && rampCount === R.rampsForExtraBall) {
+                extraBall = true;
+                events.push({ type: 'extraBall' });
             }
         }
         if (ev.lostBalls > 0) {
@@ -143,14 +171,15 @@ function createRules(physics) {
                 ballLost = true;
             }
         }
-        return { points, events, ballLost };
+        return { points, events, ballLost, extraBall };
     }
 
     function state(now) {
         return {
             multiplier: R.multipliers[multIdx], multipliers: R.multipliers, bonus,
             ballSave: now < saveUntil || now < mbSaveUntil,
-            locks, locksNeeded: R.locksForMultiball, jackpotLit: multiballActive(),
+            locks, locksNeeded: R.locksForMultiball, jackpotLit: multiballActive(), jackpotValue,
+            ramps: rampCount, rampsForExtraBall: R.rampsForExtraBall,
         };
     }
 

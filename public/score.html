@@ -323,7 +323,8 @@ socket.on('state', (state) => {
   const bonusHtml = current
     ? `Bonus ${(state.bonus || 0).toLocaleString('nb-NO')}${state.multiplier > 1 ? ` <span class="mult">× ${state.multiplier}</span>` : ''}` +
       (state.locksNeeded ? `<span class="save" style="color:inherit">🔒 ${state.locks || 0}/${state.locksNeeded}</span>` : '') +
-      (state.jackpotLit ? '<span class="save" style="color:var(--accent)">💰 JACKPOT TENT</span>' : '') +
+      (state.rampsForExtraBall ? `<span class="save" style="color:inherit">🎢 ${Math.min(state.ramps || 0, state.rampsForExtraBall)}/${state.rampsForExtraBall}</span>` : '') +
+      (state.jackpotLit ? `<span class="save" style="color:var(--accent)">💰 JACKPOT ${(state.jackpotValue || 0).toLocaleString('nb-NO')}</span>` : '') +
       (state.ballSave ? '<span class="save">↺ BALL SAVE</span>' : '')
     : '';
   const bonusEl = document.getElementById('bonus-line');
@@ -338,6 +339,9 @@ socket.on('state', (state) => {
     if (e.type === 'multiball') { message('🎉 MULTIBALL!', 3000); flash(); setTimeout(flash, 250); setTimeout(flash, 500); }
     if (e.type === 'jackpot') { message('💰 JACKPOT!', 3000); flash(); setTimeout(flash, 200); setTimeout(flash, 400); }
     if (e.type === 'multiballEnd') message('Multiball over', 1500);
+    if (e.type === 'ramp') { message(e.combo > 1 ? `🔥 COMBO ${e.combo}×!` : '🎢 RAMPE!', 1500); flash(); }
+    if (e.type === 'jackpotUp') message(`💰 JACKPOT ØKER: ${e.value.toLocaleString('nb-NO')}`, 1800);
+    if (e.type === 'extraBall') { message('⭐ EKSTRA BALL!', 3000); flash(); setTimeout(flash, 250); setTimeout(flash, 500); }
     if (e.type === 'bumper' || e.type === 'dropsComplete' || e.type === 'multiplier') flash();
     if (e.type === 'multiplier') message(`✨ BONUS ${e.value}×!`, 2000);
     if (e.type === 'dropsComplete') message('🎯 ALLE MÅL! KICKBACK TENT', 2000);

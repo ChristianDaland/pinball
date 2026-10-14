@@ -68,7 +68,7 @@ const RECONNECT_GRACE_MS = 30000;  // så lenge en frakoblet spiller beholder pl
 let players = {};    // klient-id -> { id (offentlig), name, machine, socketId, disconnectedAt }
 let scores = {};     // offentlig id -> poeng i nåværende spill
 let queue = [];      // klient-id-er i turrekkefølge; queue[0] har tur
-let game = { playerId: null, ballsLeft: BALLS_PER_GAME, machine: DEFAULT_MACHINE }; // playerId er klient-id
+let game = { playerId: null, ballsLeft: BALLS_PER_GAME, extraBalls: 0, machine: DEFAULT_MACHINE }; // playerId er klient-id
 let lastGame = null; // { name, score, machine } – vises som "game over" på skjermen
 let plungerPullStart = null; // når fjæra begynte å trekkes (ms), eller null
 let readySince = null;       // når ballen ble lagt klar for spilleren som har tur (ms), eller null
@@ -108,6 +108,7 @@ function machineList() {
 function startTurn(cid) {
     game.playerId = cid || null;
     game.ballsLeft = BALLS_PER_GAME;
+    game.extraBalls = 0;
     if (cid) {
         scores[players[cid].id] = 0;
         game.machine = players[cid].machine;
@@ -272,6 +273,10 @@ setInterval(() => {
         const id = players[game.playerId].id;
         scores[id] = (scores[id] || 0) + result.points;
     }
+    if (result.extraBall && game.playerId) {
+        game.ballsLeft += 1;
+        game.extraBalls += 1;
+    }
     if (result.ballLost && game.playerId) {
         game.ballsLeft -= 1;
         if (game.ballsLeft <= 0) endGame();
@@ -297,13 +302,13 @@ function buildGameState() {
         scores,
         currentPlayer: current ? current.id : null,
         ballsLeft: game.ballsLeft,
-        ballsPerGame: BALLS_PER_GAME,
+        ballsPerGame: BALLS_PER_GAME + game.extraBalls,
         // Sekunder igjen før turen går videre hvis ballen ikke skytes ut (null = ingen nedtelling)
         launchCountdown: readySince === null ? null : Math.max(0, Math.ceil((LAUNCH_TIMEOUT_MS - (Date.now() - readySince)) / 1000)),
         // "Game over" vises noen sekunder etter at et spill er ferdig
         gameOver: lastGame && Date.now() - lastGame.at < 4000 ? { name: lastGame.name, score: lastGame.score, machine: lastGame.machine } : null,
         ball: { x: physics.ball.x, y: physics.ball.y, r: physics.ball.r, ready: physics.ball.ready },
-        balls: physics.balls.map(b => ({ x: b.x, y: b.y, r: b.r, ready: b.ready, held: b.held })),
+        balls: physics.balls.map(b => ({ x: b.x, y: b.y, r: b.r, ready: b.ready, held: b.held, onRamp: !!b.ramp })),
         flippers: {
             left: { angle: f.left.angle, pressed: f.left.pressed },
             right: { angle: f.right.angle, pressed: f.right.pressed },

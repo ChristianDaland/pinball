@@ -66,6 +66,8 @@ PinballThemes['rommet'] = {
     callout: '#7ff6ff',
     spinner: ['#e6f2ff', '#5a6f98'],
     scoopRim: '#b26bff',
+    rampWire: '#7ff6ff',
+    rampFill: 'rgba(94,242,255,0.10)',
   },
 
   // Metallplater med nagler, og raketter/UFO-er som "dekaler" på skapet
@@ -162,6 +164,10 @@ PinballThemes['rommet'] = {
     lock: (s) => { s.tone(150, 0.5, { type: 'sawtooth', vol: 0.12, slideTo: 40 }); s.tone(1200, 0.3, { vol: 0.1, delay: 0.4, slideTo: 2400 }); },
     multiball: (s) => { for (let i = 0; i < 12; i++) s.tone(300 + i * 90, 0.12, { type: 'square', vol: 0.07, delay: i * 0.06 }); },
     jackpot: (s) => { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => s.tone(f, 0.3, { type: 'sawtooth', vol: 0.08, delay: i * 0.07 })); s.noise(0.6, { vol: 0.2, freq: 3000, q: 0.5, delay: 0.4 }); },
+    rampEnter: (s) => s.tone(200, 0.6, { type: 'sawtooth', vol: 0.07, slideTo: 1600 }),
+    ramp: (s, e) => [659, 784, 988, 1319].slice(0, 2 + Math.min(2, e.combo || 1)).forEach((f, i) => s.tone(f, 0.15, { type: 'square', vol: 0.08, delay: i * 0.07 })),
+    jackpotUp: (s) => s.tone(880, 0.3, { vol: 0.15, slideTo: 1760 }),
+    extraBall: (s) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => s.tone(f, 0.2, { type: 'square', vol: 0.09, delay: i * 0.12 })); },
     ballLost: (s) => s.tone(400, 0.5, { vol: 0.15, slideTo: 100 }),
     bonus: (s) => { for (let i = 0; i < 8; i++) s.tone(600 + i * 80, 0.06, { type: 'square', vol: 0.06, delay: 0.3 + i * 0.07 }); },
     gameover: (s) => {

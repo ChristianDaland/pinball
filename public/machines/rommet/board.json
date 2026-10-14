@@ -2,6 +2,8 @@
   "_info": "Brettet for RomPinball. Koordinater i et 800x1300-brett (x 80–620 er spillefeltet). \"speil\": true lager en speilet kopi på andre siden. Se dokumentet, punkt 6.",
 
   "walls": [
+    {"_info": "skinner inn mot ormehullet", "points": [[505.7, 547], [486.5, 603.4]]},
+    {"points": [[464.3, 533], [445.1, 589.4]]},
     { "_info": "toppkile: sender ballen fra oppskytingen ned i rollover-banene", "points": [[178, 114], [242, 67], [214, 138]], "closed": true },
     { "_info": "avviser til venstre", "points": [[80, 420], [112, 520], [80, 560]], "closed": true },
     { "_info": "avviser oppe til høyre", "points": [[620, 330], [588, 400], [620, 425]], "closed": true },
@@ -43,7 +45,11 @@
     { "_info": "sort hull – ejectAngle i grader (90 = rett ned)", "x": 480, "y": 330, "score": 250, "ejectAngle": 120, "ejectSpeed": 9 }
   ],
 
+  "ramps": [
+    {"_info": "ormehullet – inngang (to punkter) og bane over brettet som ender i inlanen", "entrance": [[505.7, 547], [464.3, 533]], "path": [[492, 520], [515, 455], [550, 420], [585, 440], [600, 520], [602, 700], [600, 820], [595, 860], [580.6, 898.6]], "score": 500}
+  ],
+
   "kickback": "høyre",
 
-  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5], "locksForMultiball": 2, "jackpotScore": 5000 }
+  "rules": { "ballSaveSeconds": 8, "multipliers": [1, 2, 3, 5], "locksForMultiball": 2, "jackpotScore": 5000, "rampsForExtraBall": 5 }
 }

@@ -184,6 +184,20 @@ for (const { id, board } of boards) {
         assert.ok(physics.ball.ready && physics.balls.length === 1);
     });
 
+    test(`${id}: rampen – for sakte ruller tilbake, fort nok går hele veien til flipperen`, () => {
+        physics.loadBoard(board);
+        physics.ramps.forEach((r, i) => {
+            const mid = { x: (r.a.x + r.b.x) / 2, y: (r.a.y + r.b.y) / 2 };
+            physics.resetBall();
+            place(mid.x - r.dirX * 30, mid.y - r.dirY * 30, r.dirX * 5, r.dirY * 5);
+            assert.ok(!runUntil(e => e.rampEnter.length > 0, 40), `rampe ${i}: for sakte ball kom inn`);
+            physics.resetBall();
+            place(mid.x - r.dirX * 30, mid.y - r.dirY * 30, r.dirX * 12, r.dirY * 12);
+            assert.ok(runUntil(e => e.ramps.length > 0, 300), `rampe ${i}: ballen kom ikke gjennom`);
+            assert.ok(runUntil(() => ball.y > 1060, 200) && ball.x > 200 && ball.x < 500, `rampe ${i}: ballen landet ikke på flipperen`);
+        });
+    });
+
     test(`${id}: ballen blir ikke sittende fast (30 min simulert spill)`, () => {
         physics.loadBoard(board);
         const rnd = seeded(id.length * 7919);

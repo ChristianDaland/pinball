@@ -77,6 +77,8 @@ const PinballRenderer = (() => {
       callout: '#ffcc55',             // store meldinger midt på brettet (BALL SAVED!, ×3 …)
       spinner: ['#f4f4f4', '#8a8f96'], // spinnerplata (lys, mørk)
       scoopRim: '#c4963b',            // kanten rundt scoop-hullet
+      rampWire: '#d8dbe0',            // trådrampens skinner
+      rampFill: 'rgba(255,235,190,0.10)',
     },
     // Valgfrie tegnefunksjoner for pynt. g er et 2D-kontekst i brettkoordinater, api har hjelpere.
     decorateCabinet: null,    // (g, api) – tegnes oppå skapet (utskjæringer, logoer …)
@@ -656,6 +658,64 @@ const PinballRenderer = (() => {
     });
   }
 
+  // Trådrampe: to skinner med tverrstag langs banen, og en pil ved inngangen
+  function drawRamps(state, now) {
+    if (!layout || !layout.ramps) return;
+    for (const r of layout.ramps) {
+      const pts = r.path;
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      // Skygge på brettet under rampen
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 22;
+      ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x + 6, p.y + 8) : ctx.moveTo(p.x + 6, p.y + 8)); ctx.stroke();
+      // Gjennomsiktig "gulv" og to skinner
+      ctx.strokeStyle = C.rampFill;
+      ctx.lineWidth = 18;
+      ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+      for (const side of [-1, 1]) {
+        ctx.strokeStyle = C.rampWire;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        pts.forEach((p, i) => {
+          const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)];
+          const dx = q.x - o.x, dy = q.y - o.y, l = Math.hypot(dx, dy) || 1;
+          const x = p.x - dy / l * 9 * side, y = p.y + dx / l * 9 * side;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        });
+        ctx.stroke();
+      }
+      // Tverrstag
+      ctx.strokeStyle = C.rampWire;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.6;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy);
+        for (let s = 0; s < l; s += 26) {
+          const x = a.x + dx * s / l, y = a.y + dy * s / l;
+          ctx.beginPath(); ctx.moveTo(x - dy / l * 9, y + dx / l * 9); ctx.lineTo(x + dy / l * 9, y - dx / l * 9); ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+      // Pil inn i rampen som pulserer
+      const [ea, eb] = r.entrance;
+      const mx = (ea.x + eb.x) / 2, my = (ea.y + eb.y) / 2;
+      const dx = pts[0].x - mx, dy = pts[0].y - my, l = Math.hypot(dx, dy), ux = dx / l, uy = dy / l;
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(now / 150);
+      ctx.fillStyle = C.lightOn;
+      for (const k of [0, 1]) {
+        const cx = mx - ux * (22 + k * 14), cy = my - uy * (22 + k * 14);
+        ctx.beginPath();
+        ctx.moveTo(cx + ux * 8, cy + uy * 8);
+        ctx.lineTo(cx - uy * 8, cy + ux * 8);
+        ctx.lineTo(cx + uy * 8, cy - ux * 8);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
   // Store meldinger midt på brettet som blekner ut
   let callouts = [];
   function callout(text) {
@@ -807,8 +867,19 @@ const PinballRenderer = (() => {
     drawFlipper(layout.flipper.right, layout.flipper.len, state.flippers.right);
   }
 
-  function drawBalls(state) {
-    for (const b of state.balls || [state.ball]) drawBall(state, b);
+  // Baller under rampen først, så rampen, så ballene som er oppe på rampen (litt større, med skygge)
+  function drawBalls(state, now) {
+    const all = state.balls || [state.ball];
+    for (const b of all) if (!b.onRamp) drawBall(state, b);
+    drawRamps(state, now);
+    for (const b of all) {
+      if (!b.onRamp) continue;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.arc(b.x + 8, b.y + 10, (b.r || 9) * 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      drawBall(state, { ...b, r: (b.r || 9) * 1.2 });
+    }
   }
 
   function drawBall(state, ball) {
@@ -1012,6 +1083,9 @@ const PinballRenderer = (() => {
       if (e.type === 'multiplier') { callout(`BONUS ${e.value}×`); ledFlash = 1; }
       if (e.type === 'dropsComplete') { callout('KICKBACK TENT!'); ledFlash = 1; }
       if (e.type === 'ballSaved') callout('BALL SAVED!');
+      if (e.type === 'ramp') { callout(e.combo > 1 ? `COMBO ${e.combo}×!` : 'RAMPE!'); ledFlash = 1; }
+      if (e.type === 'jackpotUp') callout(`JACKPOT ${e.value.toLocaleString('nb-NO')}`);
+      if (e.type === 'extraBall') { callout('EKSTRA BALL!'); ledFlash = 1; }
       if (e.type === 'lock') { callout(`BALL LÅST ${e.locks}/${e.needed}`); ledFlash = 1; }
       if (e.type === 'multiball') { callout('MULTIBALL!'); ledFlash = 1; }
       if (e.type === 'jackpot' && layout) {
@@ -1045,7 +1119,7 @@ const PinballRenderer = (() => {
     drawHud(state);
     drawBumpers(state);
     drawFlippers(state);
-    drawBalls(state);
+    drawBalls(state, now);
     drawParticles();
     drawCallouts();
     drawGameOver(state);

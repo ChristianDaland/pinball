@@ -6,7 +6,7 @@ const { createRules } = require('../rules');
 const board = require('../public/machines/gard/board.json');
 
 const none = () => ({ hits: [], slings: [], rollovers: [], rolloversComplete: false, drops: [], dropsComplete: [],
-    standups: [], kickback: false, spins: [], scoops: [], lostBalls: 0, drained: false });
+    standups: [], kickback: false, spins: [], scoops: [], rampEnter: [], ramps: [], lostBalls: 0, drained: false });
 const types = (res) => res.events.map(e => e.type);
 
 function setup() {
@@ -57,4 +57,22 @@ test('bonus × multiplikator legges til når ballen er tapt', () => {
     const bonus = res.events.find(e => e.type === 'bonus');
     assert.deepStrictEqual({ bonus: bonus.bonus, multiplier: bonus.multiplier, total: bonus.total }, { bonus: 100, multiplier: 2, total: 200 });
     assert.ok(res.ballLost);
+});
+
+test('rampe: poeng, combo innen 4 s, økt jackpot under multiball og ekstra ball ved 5', () => {
+    const rules = setup();
+    let res = rules.handle({ ...none(), rampEnter: [], ramps: [0] }, 0);
+    assert.strictEqual(res.points, 500);
+    res = rules.handle({ ...none(), rampEnter: [], ramps: [0] }, 3000);       // combo 2×
+    assert.strictEqual(res.points, 1000);
+    res = rules.handle({ ...none(), rampEnter: [], ramps: [0] }, 10000);      // for sent: combo 1×
+    assert.strictEqual(res.points, 500);
+    rules.handle({ ...none(), scoops: [0] }, 11000);
+    rules.handle({ ...none(), scoops: [0] }, 11000);                          // multiball
+    res = rules.handle({ ...none(), rampEnter: [], ramps: [0] }, 20000);
+    assert.ok(types(res).includes('jackpotUp'));
+    res = rules.handle({ ...none(), rampEnter: [], ramps: [0] }, 30000);      // 5. rampe
+    assert.ok(res.extraBall && types(res).includes('extraBall'));
+    res = rules.handle({ ...none(), scoops: [0] }, 31000);
+    assert.strictEqual(res.points, 5000 + 2 * 1000);                          // jackpot økt to ganger
 });
