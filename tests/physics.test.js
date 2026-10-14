@@ -54,6 +54,15 @@ for (const { id, board } of boards) {
         }
     });
 
+    test(`${id}: enveisporten slipper ballen ut av kanalen, men ikke inn igjen`, () => {
+        physics.loadBoard(board);
+        place(600, 190, 7, -1);                       // fra spillefeltet mot kanalen
+        runUntil(() => false, 40);
+        assert.ok(ball.x < 620, 'ballen kom seg inn i kanalen fra spillefeltet');
+        place(640, 160, -7, -1);                      // fra kanalen ut mot spillefeltet
+        assert.ok(runUntil(() => ball.x < 590, 40), 'ballen slapp ikke ut av kanalen');
+    });
+
     test(`${id}: alle drop targets kan treffes, og en full rad tenner kickback`, () => {
         physics.loadBoard(board);
         physics.dropBanks.forEach((bank, bi) => {

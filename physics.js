@@ -57,6 +57,11 @@ for (let i = 0; i < ARC.segments; i++) {
     });
 }
 
+// Enveisport der kanalen munner ut: fra skilleveggens topp og opp til taket. Ballen fra kanalen
+// slipper fritt gjennom (mot venstre), men en ball fra spillefeltet spretter tilbake.
+const GATE = { x1: LANE_DIVIDER_X, y1: ARC.cy - Math.sqrt(ARC.r ** 2 - (ARC.cx - LANE_DIVIDER_X) ** 2), x2: LANE_DIVIDER_X, y2: 260 };
+let gateSwing = 0; // > 0 en liten stund etter at ballen har passert porten fra kanalen (bare til tegning)
+
 // Inlane-skinner ned mot flipperne. De ender i tangenten til flipper-pivoten, så ballen ruller
 // glatt over på flipperen. Mellom skinnen og ytterveggen er det en outlane som går rett i avløpet.
 const GUIDE_TOP = { x: 125, y: 934.8 };
@@ -186,6 +191,7 @@ function loadBoard(board) {
         standups: standups.map(s => ({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 })),
         kickbacks: kickbacks.map(k => ({ side: k.side, x: k.side === 'left' ? 104 : 2 * MID_X - 104, y: 1060 })),
         lane: { x: LANE_X, restY: LANE_REST_Y, dividerX: LANE_DIVIDER_X },
+        gate: GATE,
         flipper: {
             len: FLIPPER_LEN, r: FLIPPER_R,
             left: { px: flippers.left.px, py: flippers.left.py },
@@ -293,6 +299,18 @@ function collideSlingshots(slingHits) {
             slingHits.push(i);
         }
     });
+}
+
+// Porten stopper bare ball som er på spillefeltsiden (x < porten) og er på vei inn i kanalen
+function collideGate() {
+    if (ball.y < GATE.y1 - BALL_R || ball.y > GATE.y2 + BALL_R) return;
+    if (ball.x >= GATE.x1) {
+        if (ball.vx < 0 && ball.x - GATE.x1 < BALL_R) gateSwing = 12;
+        return;
+    }
+    if (ball.vx <= 0) return;
+    const hit = pushOut(GATE.x1, GATE.y1, GATE.x2, GATE.y2, 0);
+    if (hit) bounce(hit, WALL_BOUNCE);
 }
 
 function collideDropTargets(events) {
@@ -457,6 +475,7 @@ function step() {
     for (const s of standups) {
         if (s.flash > 0) s.flash -= 1;
     }
+    if (gateSwing > 0) gateSwing -= 1;
     if (rolloverFlash > 0) {
         rolloverFlash -= 1;
         if (rolloverFlash === 0) rollovers.forEach(r => { r.lit = false; });
@@ -473,6 +492,7 @@ function step() {
         ball.y += ball.vy / SUBSTEPS;
 
         collideWalls();
+        collideGate();
         collideSlingshots(events.slings);
         collideDropTargets(events);
         collideStandups(events);
@@ -504,6 +524,7 @@ function tableState() {
         drops: dropBanks.map(b => b.targets.map(t => t.up)),
         standupFlash: standups.map(s => s.flash),
         kickbacks: kickbacks.map(k => k.lit),
+        gateOpen: gateSwing > 0,
     };
 }
 

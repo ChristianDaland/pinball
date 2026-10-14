@@ -461,6 +461,29 @@ const PinballRenderer = (() => {
     return b.color || (T.bumperColors && T.bumperColors[i]) || '#ff6b6b';
   }
 
+  // Enveisporten der kanalen munner ut: en metallklaff hengslet øverst, som svinger ut når ballen passerer
+  function drawGate(state) {
+    if (!layout || !layout.gate) return;
+    const g = layout.gate;
+    const open = state.table && state.table.gateOpen;
+    const len = g.y2 - g.y1;
+    const angle = open ? 0.55 : 0;
+    ctx.save();
+    ctx.translate(g.x1, g.y1);
+    ctx.rotate(angle);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = C.rail[0];
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, len); ctx.stroke();
+    ctx.strokeStyle = C.rail[1];
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+    // Hengsel
+    ctx.fillStyle = C.rail[1];
+    ctx.beginPath(); ctx.arc(g.x1, g.y1 + 3, 4, 0, Math.PI * 2); ctx.fill();
+  }
+
   /* ── elementer fra board.json ── */
   // Innfelt rundt lys med tekst (kickback, ball save, multiplikator)
   function insertLight(x, y, r, text, on, now) {
@@ -927,6 +950,7 @@ const PinballRenderer = (() => {
     drawRollovers(state, now);
     drawLights(state, now);
     drawTargets(state);
+    drawGate(state);
     drawSlingRubbers(state);
     drawPlunger(state);
     drawPlungerLabel(state, now);
