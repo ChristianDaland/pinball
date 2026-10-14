@@ -110,6 +110,14 @@ aside h2:first-child { margin-top: 0; }
   padding: 6px 14px; border-radius: 999px; font-size: 13px; display: none; }
 body.testing .playhint { display: block; }
 
+/* Skjema for ny maskin */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+.modal-bg.show { display: flex; }
+.modal { background: #1b1d27; border: 1px solid #3a3e52; border-radius: 14px; padding: 20px 22px; width: 400px; }
+.modal h3 { margin-bottom: 12px; }
+.modal .field input[type=text], .modal .field select { width: 220px; }
+.modal .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.draft { color: #ffcc55; }
 .report { white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #0f1017; border-radius: 8px; padding: 8px; display: none; }
 .report.show { display: block; }
 .report .bad { color: #ff8a8a; }
@@ -121,6 +129,7 @@ body.testing .playhint { display: block; }
 <header>
   <h1>✏️ Rediger brett</h1>
   <select id="machine"></select>
+  <button id="btn-new">+ Nytt brett</button>
   <span class="status" id="status">Laster…</span>
   <span class="spacer"></span>
   <button id="btn-test">▶ Prøv brettet</button>
@@ -140,6 +149,8 @@ body.testing .playhint { display: block; }
     </div>
     <h2>Legg til (klikk så på brettet)</h2>
     <div class="palette" id="palette"></div>
+    <h2>Maskin</h2>
+    <div id="machine-settings"></div>
     <h2>Brettet</h2>
     <div class="field"><label>Kickback</label>
       <select id="kickback"><option value="">ingen</option><option>venstre</option><option>høyre</option><option>begge</option></select></div>
@@ -178,6 +189,20 @@ body.testing .playhint { display: block; }
   </aside>
 </div>
 
+<div class="modal-bg" id="new-modal">
+  <div class="modal">
+    <h3>Nytt brett</h3>
+    <p class="hint">Et nytt brett blir en egen maskin med eget navn og egen toppliste. Den er et utkast og vises ikke for spillerne før du trykker «Publiser».</p>
+    <div class="field"><label>Navn</label><input type="text" id="new-name" maxlength="24" placeholder="f.eks. Høyløa Ekspress"></div>
+    <div class="field"><label>Ikon (emoji)</label><input type="text" id="new-icon" maxlength="8" placeholder="🚜"></div>
+    <div class="field"><label>Slagord</label><input type="text" id="new-tagline" maxlength="60" placeholder="Kort beskrivelse"></div>
+    <div class="field"><label>Utseende</label><select id="new-theme"></select></div>
+    <div class="field"><label>Start fra</label><select id="new-copy"></select></div>
+    <p class="hint" id="new-error" style="color:#ff8a8a"></p>
+    <div class="buttons"><button id="new-cancel">Avbryt</button><button id="new-create" class="primary">Lag brett</button></div>
+  </div>
+</div>
+
 <script src="/engine/sound.js"></script>
 <script src="/engine/renderer.js"></script>
 <script src="/engine/physics.js"></script>
@@ -198,6 +223,8 @@ let tool = 'select';
 let history = [];        // lokale angre-steg (Ctrl+Z)
 let testing = false;
 let checkMarks = [];     // steder der "Sjekk brettet" fant en ball som sto fast
+let machineInfos = [];   // alle maskiner fra /api/maskiner (også utkast)
+const machineInfo = () => machineInfos.find(m => m.id === machineId);
 
 /* ══════════════════════ ELEMENTTYPER ══════════════════════ */
 // Mal for nye elementer, plassert rundt punktet (x, y) man klikket på
@@ -745,8 +772,10 @@ async function loadMachine(id) {
   }
   stopTest();
   machineId = id;
-  const [info, theme] = await Promise.all([fetch(`/api/brett/${id}`).then(r => r.json()), loadTheme(id)]);
-  PinballRenderer.setTheme(theme);
+  const m = machineInfo();
+  const [info, theme] = await Promise.all([fetch(`/api/brett/${id}`).then(r => r.json()), loadTheme(m.theme)]);
+  PinballRenderer.setTheme(m.custom ? { ...theme, title: m.name.toUpperCase() } : theme);
+  renderMachineSettings();
   document.body.style.background = '#12131a';
   showInfo(info);
 }
@@ -785,6 +814,104 @@ $('btn-download').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 window.addEventListener('beforeunload', (ev) => { if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
+
+/* ══════════════════════ MASKINER (NYTT BRETT, PUBLISER, SLETT) ══════════════════════ */
+async function refreshMachines(selectId) {
+  machineInfos = await fetch('/api/maskiner').then(r => r.json());
+  const sel = $('machine');
+  sel.innerHTML = '';
+  for (const m of machineInfos) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${m.id}"></option>`);
+    sel.lastElementChild.textContent = `${m.icon} ${m.name}${m.published ? '' : ' (utkast)'}`;
+  }
+  sel.value = selectId && machineInfos.some(m => m.id === selectId) ? selectId : machineInfos[0].id;
+}
+
+// Navn, ikon, slagord, farger, publisering og sletting – bare for egne maskiner
+function renderMachineSettings() {
+  const box = $('machine-settings');
+  const m = machineInfo();
+  if (!m.custom) {
+    box.innerHTML = '<p class="hint">Innebygd maskin – navn og utseende endres i koden. Bruk «+ Nytt brett» for å lage en egen maskin.</p>';
+    return;
+  }
+  const c = m.colors || {};
+  box.innerHTML = `
+    <p class="hint">${m.published ? '✅ Publisert – vises på hovedsiden' : '<span class="draft">✏️ Utkast – vises ikke for spillerne</span>'}</p>
+    <div class="field"><label>Navn</label><input type="text" data-m="name" maxlength="24" style="width:130px"></div>
+    <div class="field"><label>Ikon</label><input type="text" data-m="icon" maxlength="8" style="width:60px"></div>
+    <div class="field"><label>Slagord</label><input type="text" data-m="tagline" maxlength="60" style="width:130px"></div>
+    <div class="field"><label>Lysfarge</label><input type="color" data-c="accent" value="${c.accent || '#ffe66d'}"></div>
+    <div class="field"><label>Bakgrunn 1 / 2</label><span><input type="color" data-c="bg" value="${c.bg || '#1a1a2e'}"><input type="color" data-c="bg2" value="${c.bg2 || '#16213e'}"></span></div>
+    <div class="field"><button id="btn-publish" class="${m.published ? '' : 'primary'}">${m.published ? 'Skjul fra hovedsiden' : '🚀 Publiser'}</button>
+      <button id="btn-delete-machine">Slett maskin</button></div>
+    <p class="hint">Lysfarge og bakgrunn brukes på hovedsiden, toppskjermen og mobilen. Brettet har utseendet du valgte da maskinen ble laget.</p>`;
+  box.querySelector('[data-m=name]').value = m.name;
+  box.querySelector('[data-m=icon]').value = m.icon;
+  box.querySelector('[data-m=tagline]').value = m.tagline || '';
+  box.querySelectorAll('[data-m]').forEach(inp => inp.addEventListener('change', () => updateMachine({ [inp.dataset.m]: inp.value })));
+  box.querySelectorAll('[data-c]').forEach(inp => inp.addEventListener('change', () => updateMachine({ colors: { [inp.dataset.c]: inp.value } })));
+  $('btn-publish').addEventListener('click', async () => {
+    if (!m.published && dirty && !confirm('Brettet har ulagrede endringer. Publisere den lagrede versjonen likevel?')) return;
+    await updateMachine({ published: !m.published });
+  });
+  $('btn-delete-machine').addEventListener('click', async () => {
+    if (!confirm(`Slette maskinen «${m.name}» med brett? Dette kan ikke angres.`)) return;
+    const res = await fetch(`/api/maskiner/${m.id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) { setStatus('Kunne ikke slette: ' + data.error, 'error'); return; }
+    dirty = false;
+    await refreshMachines();
+    await loadMachine($('machine').value);
+    setStatus(`Maskinen «${m.name}» er slettet`);
+  });
+}
+
+async function updateMachine(changes) {
+  try {
+    await post(`/api/maskiner/${machineId}`, changes);
+    await refreshMachines(machineId);
+    const m = machineInfo();
+    PinballRenderer.setTheme({ ...(await loadTheme(m.theme)), title: m.name.toUpperCase() });
+    renderMachineSettings();
+    if (changes.published !== undefined) setStatus(changes.published ? '🚀 Publisert – maskinen vises nå på hovedsiden' : 'Skjult fra hovedsiden');
+  } catch (err) {
+    setStatus('Feil: ' + err.message, 'error');
+    renderMachineSettings();
+  }
+}
+
+$('btn-new').addEventListener('click', () => {
+  const builtins = machineInfos.filter(m => !m.custom);
+  $('new-theme').innerHTML = builtins.map(m => `<option value="${m.id}">${m.icon} som ${m.name}</option>`).join('');
+  $('new-theme').value = machineInfo().theme;
+  $('new-copy').innerHTML = machineInfos.map(m => `<option value="${m.id}">Kopi av ${m.icon} ${m.name}</option>`).join('') +
+    '<option value="">Nesten tomt brett (bare slingshots)</option>';
+  $('new-copy').value = machineId;
+  $('new-name').value = '';
+  $('new-icon').value = '';
+  $('new-tagline').value = '';
+  $('new-error').textContent = '';
+  $('new-modal').classList.add('show');
+  $('new-name').focus();
+});
+$('new-cancel').addEventListener('click', () => $('new-modal').classList.remove('show'));
+$('new-create').addEventListener('click', async () => {
+  if (dirty && !confirm('Du har ulagrede endringer på dette brettet. Fortsette likevel?')) return;
+  try {
+    const res = await post('/api/maskiner', {
+      name: $('new-name').value, icon: $('new-icon').value, tagline: $('new-tagline').value,
+      theme: $('new-theme').value, copyFrom: $('new-copy').value,
+    });
+    $('new-modal').classList.remove('show');
+    dirty = false;
+    await refreshMachines(res.id);
+    await loadMachine(res.id);
+    setStatus('Nytt brett laget – det er et utkast til du trykker «Publiser»');
+  } catch (err) {
+    $('new-error').textContent = err.message;
+  }
+});
 
 /* ══════════════════════ PRØV BRETTET ══════════════════════ */
 let testTimer = null;
@@ -943,11 +1070,8 @@ $('btn-check').addEventListener('click', checkBoard);
 
 /* ══════════════════════ OPPSTART ══════════════════════ */
 (async () => {
-  const list = await fetch('/api/maskiner').then(r => r.json());
+  await refreshMachines(new URLSearchParams(location.search).get('maskin'));
   const sel = $('machine');
-  for (const m of list) sel.insertAdjacentHTML('beforeend', `<option value="${m.id}">${m.icon} ${m.name}</option>`);
-  const wanted = new URLSearchParams(location.search).get('maskin');
-  sel.value = list.some(m => m.id === wanted) ? wanted : list[0].id;
   sel.addEventListener('change', () => loadMachine(sel.value));
   resize();
   await loadMachine(sel.value);

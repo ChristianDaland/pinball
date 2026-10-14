@@ -9,6 +9,7 @@ const physics = require('./physics');
 const { createHighScores } = require('./highscores');
 const { createRules } = require('./rules');
 const { createBoardStore, cleanBoard } = require('./boards');
+const { createMachineStore, makeMachineId } = require('./custommachines');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,7 +46,7 @@ function loadMachines() {
             const boardFile = path.join(dir, 'board.json');
             const board = fs.existsSync(boardFile) ? JSON.parse(fs.readFileSync(boardFile, 'utf8')) : {};
             list.push({ id, name: info.name || id, tagline: info.tagline || '', icon: info.icon || '🎰',
-                order: info.order || 99, colors: info.colors || {}, board });
+                order: info.order || 99, colors: info.colors || {}, board, theme: id, custom: false, published: true });
         } catch (e) {
             console.error(`Hopper over maskin "${id}":`, e.message);
         }
@@ -54,8 +55,18 @@ function loadMachines() {
     return list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
+// Bare publiserte maskiner kan velges av spillerne (egne maskiner er utkast til de publiseres)
 function validMachine(id) {
-    return machines.some(m => m.id === id) ? id : null;
+    return machines.some(m => m.id === id && m.published) ? id : null;
+}
+
+// Egne maskiner fra redigeringen legges til etter de innebygde
+const machineStore = createMachineStore({
+    file: process.env.CUSTOM_MACHINES_FILE || path.join(__dirname, 'custom-machines.json'),
+});
+function addCustomMachine(c, i) {
+    machines.push({ id: c.id, name: c.name, tagline: c.tagline || '', icon: c.icon || '🎰', order: 100 + i,
+        colors: c.colors || {}, board: c.board || {}, theme: c.theme, custom: true, published: !!c.published });
 }
 
 const rules = createRules(physics);
@@ -105,7 +116,85 @@ async function boardInfo(id) {
     };
 }
 app.get('/api/maskiner', (req, res) => {
-    res.json(machines.map(m => ({ id: m.id, name: m.name, icon: m.icon, colors: m.colors })));
+    res.json(machines.map(m => ({ id: m.id, name: m.name, icon: m.icon, tagline: m.tagline, colors: m.colors,
+        theme: m.theme, custom: m.custom, published: m.published })));
+});
+
+const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const cleanColor = (v) => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : null);
+
+// Ny maskin: { name, icon, tagline, theme (innebygd maskin-id), copyFrom (maskin-id eller tom) }
+app.post('/api/maskiner', async (req, res) => {
+    const b = req.body || {};
+    const name = cleanText(b.name, 24);
+    if (!name) return res.status(400).json({ error: 'Maskinen må ha et navn' });
+    if (machines.filter(m => m.custom).length >= 30) return res.status(400).json({ error: 'Maks 30 egne maskiner' });
+    const base = machines.find(m => m.id === b.theme && !m.custom);
+    if (!base) return res.status(400).json({ error: 'Ukjent utseende' });
+    const from = machines.find(m => m.id === b.copyFrom);
+    const board = from ? JSON.parse(JSON.stringify(effectiveBoard(from.id)))
+        : { slingshots: base.board.slingshots || [], walls: (base.board.walls || []).filter(w => /toppkile/.test(w._info || '')) };
+    const c = {
+        id: makeMachineId(name, machines.map(m => m.id)),
+        name, icon: cleanText(b.icon, 8) || base.icon, tagline: cleanText(b.tagline, 60),
+        theme: base.id, colors: { ...base.colors }, board: cleanBoard(board), published: false,
+    };
+    try {
+        await machineStore.add(c);
+        addCustomMachine(c, machines.filter(m => m.custom).length);
+        await highScores.ensure(c.id);
+        await boardStore.ensure(c.id);
+        res.json({ id: c.id });
+    } catch (err) {
+        res.status(500).json({ error: 'Kunne ikke lagre maskinen: ' + err.message });
+    }
+});
+
+// Endre egen maskin: navn, ikon, slagord, farger, publisert
+app.post('/api/maskiner/:id', async (req, res) => {
+    const m = machines.find(x => x.id === req.params.id);
+    if (!m) return res.status(404).json({ error: 'Ukjent maskin' });
+    if (!m.custom) return res.status(400).json({ error: 'De innebygde maskinene endres i koden' });
+    const b = req.body || {}, changes = {};
+    if (b.name !== undefined) { changes.name = cleanText(b.name, 24); if (!changes.name) return res.status(400).json({ error: 'Maskinen må ha et navn' }); }
+    if (b.icon !== undefined) changes.icon = cleanText(b.icon, 8) || m.icon;
+    if (b.tagline !== undefined) changes.tagline = cleanText(b.tagline, 60);
+    if (b.colors && typeof b.colors === 'object') {
+        changes.colors = { ...m.colors };
+        for (const k of ['bg', 'bg2', 'accent', 'text']) if (cleanColor(b.colors[k])) changes.colors[k] = b.colors[k];
+    }
+    if (b.published !== undefined) {
+        changes.published = !!b.published;
+        if (!changes.published && (game.machine === m.id && game.playerId)) return res.status(409).json({ error: 'Maskinen er i bruk akkurat nå' });
+    }
+    try {
+        await machineStore.update(m.id, changes);
+        Object.assign(m, changes);
+        // Skjult maskin: spillere i kø for den flyttes til standardmaskinen
+        if (!m.published) for (const p of Object.values(players)) if (p.machine === m.id) p.machine = DEFAULT_MACHINE;
+        io.emit('machines', machineList());
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/maskiner/:id', async (req, res) => {
+    const m = machines.find(x => x.id === req.params.id);
+    if (!m) return res.status(404).json({ error: 'Ukjent maskin' });
+    if (!m.custom) return res.status(400).json({ error: 'De innebygde maskinene kan ikke slettes' });
+    if (game.machine === m.id && game.playerId) return res.status(409).json({ error: 'Maskinen er i bruk akkurat nå' });
+    try {
+        await machineStore.remove(m.id);
+        await boardStore.removeAll(m.id);
+        machines.splice(machines.indexOf(m), 1);
+        for (const p of Object.values(players)) if (p.machine === m.id) p.machine = DEFAULT_MACHINE;
+        if (game.machine === m.id) { game.machine = DEFAULT_MACHINE; useBoard(DEFAULT_MACHINE, true); }
+        io.emit('machines', machineList());
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 app.get('/api/brett/:id', async (req, res) => {
     if (!machineOr404(req, res)) return;
@@ -160,9 +249,6 @@ const highScores = createHighScores({
     machineIds: machines.map(m => m.id),
     file: process.env.HIGHSCORE_FILE || path.join(__dirname, 'highscores.json'),
 });
-highScores.init().then(() => io.emit('machines', machineList()));
-useBoard(game.machine);
-boardStore.init().then(() => useBoard(game.machine, true));
 
 function cleanName(name) {
     if (typeof name !== 'string') return '';
@@ -182,8 +268,9 @@ function addHighScore(cid) {
 }
 
 // Maskinoversikt til hovedsiden og poengtavla: navn, farger og topp 10
+// Bare publiserte maskiner vises for spillerne
 function machineList() {
-    return machines.map(({ board, ...m }) => ({ ...m, highScores: highScores.top(m.id) }));
+    return machines.filter(m => m.published).map(({ board, ...m }) => ({ ...m, highScores: highScores.top(m.id) }));
 }
 
 function startTurn(cid) {
@@ -380,6 +467,9 @@ function buildGameState() {
     return {
         players: queue.map(cid => ({ id: players[cid].id, name: players[cid].name, machine: players[cid].machine, away: !!players[cid].disconnectedAt })),
         machine: game.machine,
+        // Utseendet (theme.js) og tittelen på brettet – egne maskiner låner utseendet til en innebygd
+        theme: (machines.find(m => m.id === game.machine) || {}).theme || game.machine,
+        title: ((machines.find(m => m.id === game.machine) || {}).name || '').toUpperCase(),
         scores,
         currentPlayer: current ? current.id : null,
         ballsLeft: game.ballsLeft,
@@ -402,6 +492,18 @@ function buildGameState() {
         events: soundEvents,
     };
 }
+
+useBoard(game.machine);
+// Databaser og egne maskiner lastes i bakgrunnen ved oppstart
+Promise.all([highScores.init(), boardStore.init(), machineStore.init()]).then(async () => {
+    machineStore.list().forEach((c, i) => addCustomMachine(c, i));
+    for (const m of machines.filter(x => x.custom)) {
+        await highScores.ensure(m.id);
+        await boardStore.ensure(m.id);
+    }
+    useBoard(game.machine, true);
+    io.emit('machines', machineList());
+}).catch(err => console.error('Feil ved oppstart:', err.message));
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {

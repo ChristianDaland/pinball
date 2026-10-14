@@ -960,7 +960,7 @@ const PinballRenderer = (() => {
   // Tittelen står øverst; poeng og spiller nederst mellom flipperne (toppen er brukt av rollovers)
   function drawHud(state) {
     const cx = 350;
-    displayBox(cx - 130, 112, 260, 40, T.title, 24);
+    displayBox(cx - 130, 112, 260, 40, T.title, Math.min(24, Math.floor(400 / Math.max(1, T.title.length))));
     const yBox = 1200, yText = 1256, yInfo = 1278;
 
     const current = state.players.find(p => p.id === state.currentPlayer);

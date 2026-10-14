@@ -53,6 +53,20 @@ function createBoardStore({ machineIds, file }) {
         });
     }
 
+    // Tar med en maskin som ble laget etter oppstart
+    async function ensure(id) {
+        if (id in latest) return;
+        if (db) await loadLatest(id);
+        else latest[id] = (saved[id] || []).length ? saved[id][saved[id].length - 1] : null;
+    }
+
+    // Sletter alle lagrede versjoner for en maskin (når en egen maskin slettes)
+    async function removeAll(id) {
+        if (db) await db.execute({ sql: 'DELETE FROM pinball_boards WHERE machine = ?', args: [id] });
+        else { delete saved[id]; saveFile(); }
+        delete latest[id];
+    }
+
     // Det lagrede brettet for en maskin, eller null (= bruk standardbrettet)
     function get(id) {
         return latest[id] || null;
@@ -100,7 +114,7 @@ function createBoardStore({ machineIds, file }) {
         return (saved[id] || []).length;
     }
 
-    return { init, get, save, undo, reset, count };
+    return { init, ensure, removeAll, get, save, undo, reset, count };
 }
 
 // Sjekker og rydder et brett fra redigeringen, så et ødelagt eller enormt brett ikke kan lagres.

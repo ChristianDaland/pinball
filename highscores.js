@@ -27,13 +27,7 @@ function createHighScores({ machineIds, file }) {
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )`);
                 await db.execute('CREATE INDEX IF NOT EXISTS pinball_highscores_machine_score ON pinball_highscores (machine, score DESC)');
-                for (const id of machineIds) {
-                    const res = await db.execute({
-                        sql: 'SELECT name, score FROM pinball_highscores WHERE machine = ? ORDER BY score DESC, id ASC LIMIT ?',
-                        args: [id, TOP_N],
-                    });
-                    lists[id] = res.rows.map(r => ({ name: String(r.name), score: Number(r.score) }));
-                }
+                for (const id of machineIds) await loadFromDb(id);
                 console.log('[DB] Tilkoblet Turso – topplister lastet.');
                 return;
             } catch (err) {
@@ -46,13 +40,31 @@ function createHighScores({ machineIds, file }) {
         loadFile();
     }
 
+    async function loadFromDb(id) {
+        const res = await db.execute({
+            sql: 'SELECT name, score FROM pinball_highscores WHERE machine = ? ORDER BY score DESC, id ASC LIMIT ?',
+            args: [id, TOP_N],
+        });
+        lists[id] = res.rows.map(r => ({ name: String(r.name), score: Number(r.score) }));
+    }
+
+    // Tar med en maskin som ble laget etter oppstart (egne maskiner fra redigeringen)
+    async function ensure(id) {
+        if (lists[id]) return;
+        lists[id] = [];
+        if (db) await loadFromDb(id);
+        else if (fileData[id]) lists[id] = fileData[id].slice(0, TOP_N);
+    }
+
     // Filformat: { "<maskin-id>": [{ name, score }, …] }. Gammelt format (én liste) hører til gården.
+    let fileData = {};
     function loadFile() {
         let data = {};
         try {
             data = JSON.parse(fs.readFileSync(file, 'utf8'));
         } catch (e) { /* ingen fil ennå */ }
         if (Array.isArray(data)) data = { gard: data };
+        fileData = data || {};
         for (const id of machineIds) {
             const list = Array.isArray(data && data[id]) ? data[id] : [];
             lists[id] = list.filter(h => h && typeof h.name === 'string' && Number.isFinite(h.score))
@@ -61,7 +73,7 @@ function createHighScores({ machineIds, file }) {
     }
 
     function saveFile() {
-        fs.writeFile(file, JSON.stringify(lists, null, 2), (err) => {
+        fs.writeFile(file, JSON.stringify({ ...fileData, ...lists }, null, 2), (err) => {
             if (err) console.error('Kunne ikke lagre topplista:', err.message);
         });
     }
@@ -85,7 +97,7 @@ function createHighScores({ machineIds, file }) {
         }
     }
 
-    return { init, top, add, TOP_N };
+    return { init, ensure, top, add, TOP_N };
 }
 
 module.exports = { createHighScores };

@@ -71,11 +71,13 @@ function loadTheme(id) {
   return themeLoads[id];
 }
 
-function useTheme(id) {
-  if (!id || id === currentThemeId) return;
-  currentThemeId = id;
+// Egne maskiner låner utseendet til en innebygd maskin, men har sin egen tittel på brettet
+function useTheme(id, title) {
+  const key = id + '|' + (title || '');
+  if (!id || key === currentThemeId) return;
+  currentThemeId = key;
   loadTheme(id)
-    .then(theme => { if (currentThemeId === id) PinballRenderer.setTheme(theme); })
+    .then(theme => { if (currentThemeId === key) PinballRenderer.setTheme(title ? { ...theme, title } : theme); })
     .catch(err => console.error(err.message));
 }
 
@@ -91,7 +93,8 @@ let state = {
 socket.on('layout', (data) => PinballRenderer.setLayout(data));
 
 socket.on('state', (data) => {
-  useTheme(forcedTheme || data.machine || 'gard');
+  if (forcedTheme) useTheme(forcedTheme);
+  else useTheme(data.theme || data.machine || 'gard', data.title);
   for (const e of data.events || []) playSound(e.type, e);
   PinballRenderer.handleEvents(data);
   for (const side of ['left', 'right']) {
