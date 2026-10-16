@@ -40,6 +40,7 @@ canvas { display: block; }
 // Alt utseende ligger i public/machines/<id>/theme.js, all tegning i engine/renderer.js.
 const canvas = document.getElementById('game');
 const socket = io();
+socket.on('connect', () => socket.emit('table-screen'));
 PinballRenderer.init(canvas);
 PinballScreens.announce('brett');
 PinballScreens.addFullscreenButton();

@@ -13,7 +13,9 @@ const { createMachineStore, makeMachineId } = require('./custommachines');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// Komprimerer websocket-meldingene: state-meldingene ligner mye på hverandre og krymper kraftig.
+// Render tar betalt for utgående trafikk utover 5 GB i måneden.
+const io = new Server(server, { perMessageDeflate: { threshold: 256 } });
 
 // physics.js og rules.js brukes også i nettleseren (redigering.html: "Prøv brettet"),
 // pakket inn så de virker uten Node: window.PinballPhysics / window.PinballRules
@@ -333,6 +335,11 @@ function canControl(socket) {
 io.on('connection', (socket) => {
     socket.emit('layout', physics.layout);
     socket.emit('machines', machineList());
+    if (lastSent.table) socket.emit('state', lastSent.table);
+
+    // Storskjermen (pinball.html) får hele tilstanden 60 ganger i sekundet; mobiler, hovedsiden
+    // og poengtavla trenger bare kø, poeng og ballstatus og får den sjeldnere.
+    socket.on('table-screen', () => socket.join('table'));
 
     // Mobilen presenterer seg med sin faste klient-id. Er spilleren kjent fra før, er dette
     // en gjenoppkobling, og spilleren beholder plassen i køen. Navnet kan mangle her –
@@ -464,9 +471,34 @@ setInterval(() => {
         readySince = null;
     }
 
-    io.emit('state', buildGameState());
-    soundEvents = [];
+    sendState();
 }, 1000 / 60);
+
+// Sender bare når noe har endret seg, så en åpen fane mens ingen spiller nesten ikke koster trafikk
+const OTHERS_EVERY = 6; // de andre sidene får tilstanden 10 ganger i sekundet
+let tick = 0;
+let othersEvents = [];
+const lastSent = { table: null, tableJson: '', othersJson: '' };
+function sendState() {
+    const state = buildGameState();
+    othersEvents.push(...soundEvents);
+    soundEvents = [];
+    const json = JSON.stringify(state);
+    if (json !== lastSent.tableJson) io.to('table').emit('state', state);
+    lastSent.table = { ...state, events: [] };
+    lastSent.tableJson = json;
+
+    if (++tick % OTHERS_EVERY !== 0) return;
+    const others = { ...state, events: othersEvents };
+    othersEvents = [];
+    const othersJson = JSON.stringify(others);
+    if (othersJson !== lastSent.othersJson) io.except('table').emit('state', others);
+    lastSent.othersJson = othersJson;
+}
+
+// Færre desimaler gir kortere meldinger; en tidel piksel synes ikke på skjermen
+const r1 = (v) => Math.round(v * 10) / 10;
+const r3 = (v) => Math.round(v * 1000) / 1000;
 
 function buildGameState() {
     const f = physics.flippers;
@@ -486,11 +518,11 @@ function buildGameState() {
         launchCountdown: readySince === null ? null : Math.max(0, Math.ceil((LAUNCH_TIMEOUT_MS - (Date.now() - readySince)) / 1000)),
         // "Game over" vises noen sekunder etter at et spill er ferdig
         gameOver: lastGame && Date.now() - lastGame.at < 4000 ? { name: lastGame.name, score: lastGame.score, machine: lastGame.machine } : null,
-        ball: { x: physics.ball.x, y: physics.ball.y, r: physics.ball.r, ready: physics.ball.ready },
-        balls: physics.balls.map(b => ({ x: b.x, y: b.y, r: b.r, ready: b.ready, held: b.held, onRamp: !!b.ramp })),
+        ball: { x: r1(physics.ball.x), y: r1(physics.ball.y), r: physics.ball.r, ready: physics.ball.ready },
+        balls: physics.balls.map(b => ({ x: r1(b.x), y: r1(b.y), r: b.r, ready: b.ready, held: b.held, onRamp: !!b.ramp })),
         flippers: {
-            left: { angle: f.left.angle, pressed: f.left.pressed },
-            right: { angle: f.right.angle, pressed: f.right.pressed },
+            left: { angle: r3(f.left.angle), pressed: f.left.pressed },
+            right: { angle: r3(f.right.angle), pressed: f.right.pressed },
         },
         bumpers: physics.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, score: b.score, type: b.type, color: b.color, icon: b.icon, hitFlash: b.hitFlash })),
         slingFlash: physics.slingshots.map(s => s.flash),
