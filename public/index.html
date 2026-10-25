@@ -322,7 +322,12 @@ footer a { color: #aab; font-size: 0.9em; }
       <input id="kb-name" maxlength="20" placeholder="Navnet ditt" autocomplete="nickname">
       <div class="step-msg" id="kb-msg"></div>
     </div></li>
-    <li><div class="step-body"><b>Trykk «▶ Spill» på maskinen du vil spille.</b> <span class="note">Brettet åpnes i et eget vindu.</span></div></li>
+    <li><div class="step-body">
+      <b>Trykk «▶ Spill» på maskinen du vil spille.</b> <span class="note">Brettet åpnes i et eget vindu. Vil du se poeng og toppliste på en egen skjerm, åpner du poengtavla også.</span>
+      <div class="screens">
+        <button id="open-score-kb">🏆 Åpne poengtavla</button>
+      </div>
+    </div></li>
     <li><div class="step-body">
       <b>Styr med tastene</b>
       <div class="keys">
@@ -381,14 +386,19 @@ function openScreen(screen) {
   screensMsg.textContent = ok ? '' : 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden, eller trykk på knappen igjen.';
   return ok;
 }
+// Poengtavla kan også åpnes fra tastatursteget
+const scoreKbBtn = document.getElementById('open-score-kb');
 screenBtns.brett.addEventListener('click', () => openScreen('brett'));
 screenBtns.score.addEventListener('click', () => openScreen('score'));
+scoreKbBtn.addEventListener('click', () => {
+  if (!PinballScreens.open('score')) kbMsg.textContent = 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden, eller trykk på knappen igjen.';
+});
 
 PinballScreens.watch((open) => {
-  for (const s of ['brett', 'score']) {
-    screenBtns[s].textContent = screenText[s][open[s] ? 1 : 0];
-    screenBtns[s].classList.toggle('is-open', open[s]);
-    screenBtns[s].title = open[s] ? 'Hent fram vinduet' : 'Åpne i eget vindu – dra det over til riktig skjerm';
+  for (const [s, btn] of [['brett', screenBtns.brett], ['score', screenBtns.score], ['score', scoreKbBtn]]) {
+    btn.textContent = screenText[s][open[s] ? 1 : 0];
+    btn.classList.toggle('is-open', open[s]);
+    btn.title = open[s] ? 'Hent fram vinduet' : 'Åpne i eget vindu – dra det over til riktig skjerm';
   }
   screenBtns.brett.classList.toggle('primary', !open.brett);
   screenBtns.score.classList.toggle('primary', open.brett && !open.score);
