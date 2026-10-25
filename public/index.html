@@ -338,11 +338,10 @@ footer a { color: #aab; font-size: 0.9em; }
 <section class="steps" id="steps-mobil">
   <ol>
     <li><div class="step-body">
-      <b>Åpne brettet på storskjermen.</b> <span class="note">Dra vinduet over til riktig skjerm og trykk «Fullskjerm».</span>
+      <b>Åpne brettet og poengtavla – ett klikk på hver.</b> <span class="note">Dra vinduene over til riktig skjerm og trykk «Fullskjerm». Poengtavla kan droppes hvis du bare har én skjerm.</span>
       <div class="screens" id="screens">
-        <button id="open-brett">🎰 Åpne brettet</button>
+        <button id="open-brett" class="primary">🎰 Åpne brettet</button>
         <button id="open-score">🏆 Åpne poengtavla</button>
-        <button id="open-both" class="primary">Åpne begge</button>
         <div class="screens-msg" id="screens-msg"></div>
       </div>
     </div></li>
@@ -373,24 +372,17 @@ const screenText = {
   brett: ['🎰 Åpne brettet', '✅ Brettet er åpent'],
   score: ['🏆 Åpne poengtavla', '✅ Poengtavla er åpen'],
 };
-const bothBtn = document.getElementById('open-both');
 const screensMsg = document.getElementById('screens-msg');
 
+// Nettleserne slipper bare gjennom ett nytt vindu per klikk, så brett og poengtavle åpnes med
+// hvert sitt klikk. Knappen som bør trykkes neste gang, er uthevet.
 function openScreen(screen) {
   const ok = PinballScreens.open(screen);
-  if (!ok) screensMsg.textContent = 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden, eller trykk på knappen igjen.';
+  screensMsg.textContent = ok ? '' : 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden, eller trykk på knappen igjen.';
   return ok;
 }
 screenBtns.brett.addEventListener('click', () => openScreen('brett'));
 screenBtns.score.addEventListener('click', () => openScreen('score'));
-// Mange nettlesere slipper bare gjennom ett nytt vindu per klikk. Blir det andre blokkert,
-// står knappen for det igjen, så det holder med ett klikk til.
-bothBtn.addEventListener('click', () => {
-  screensMsg.textContent = '';
-  if (openScreen('brett') && !PinballScreens.open('score')) {
-    screensMsg.textContent = 'Brettet er åpnet. Trykk «Åpne poengtavla» for å åpne poengtavla også.';
-  }
-});
 
 PinballScreens.watch((open) => {
   for (const s of ['brett', 'score']) {
@@ -398,8 +390,8 @@ PinballScreens.watch((open) => {
     screenBtns[s].classList.toggle('is-open', open[s]);
     screenBtns[s].title = open[s] ? 'Hent fram vinduet' : 'Åpne i eget vindu – dra det over til riktig skjerm';
   }
-  bothBtn.style.display = open.brett || open.score ? 'none' : '';
-  if (open.brett && open.score) screensMsg.textContent = '';
+  screenBtns.brett.classList.toggle('primary', !open.brett);
+  screenBtns.score.classList.toggle('primary', open.brett && !open.score);
 });
 
 /* ── valg av styring: tastatur eller mobil (huskes i nettleseren) ── */
