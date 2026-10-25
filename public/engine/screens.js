@@ -1,6 +1,6 @@
 /* ══════════════════════ SKJERMENE ══════════════════════
    Hovedsiden (index.html) åpner brettet (pinball.html) og poengtavla (score.html) i egne
-   vinduer. Brettet og poengtavla melder fra over en BroadcastChannel at de er åpne, så
+   vinduer, og kan be brettet stille seg i kø for tastaturspill (open med params). Brettet og poengtavla melder fra over en BroadcastChannel at de er åpne, så
    hovedsiden kan vise "✅ Brettet er åpent" – også etter at hovedsiden er lastet på nytt.
    Virker bare mellom vinduer i samme nettleser på samme maskin.
 */
@@ -48,17 +48,28 @@ const PinballScreens = (() => {
   }
 
   // Åpner en skjerm i eget vindu, eller henter fram vinduet hvis det allerede er åpent.
-  // Returnerer false hvis nettleseren blokkerte vinduet.
-  function open(screen) {
+  // params (valgfritt) går til skjermen: i adressen når vinduet er nytt, ellers som en beskjed
+  // over kanalen (se onMessage). Returnerer false hvis nettleseren blokkerte vinduet.
+  function open(screen, params) {
     const s = SCREENS[screen];
     const w = window.open('', s.name, s.features);
     if (!w) return false;
     // Et vindu med dette navnet fantes ikke fra før: last inn siden
     let blank = true;
     try { blank = w.location.href === 'about:blank'; } catch (e) { /* annen adresse – la den være */ }
-    if (blank) w.location.href = s.url;
+    if (blank) w.location.href = s.url + (params ? '?' + new URLSearchParams(params) : '');
+    else if (params && channel) channel.postMessage({ type: 'beskjed', screen, params });
     w.focus();
     return true;
+  }
+
+  // Brukes av skjermene: fn(params) når hovedsiden sender en beskjed til denne skjermen
+  function onMessage(screen, fn) {
+    if (!channel) return;
+    channel.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === 'beskjed' && d.screen === screen && d.params) fn(d.params);
+    });
   }
 
   // Liten "⛶ Fullskjerm"-knapp oppe til høyre som skjules i fullskjerm
@@ -79,5 +90,5 @@ const PinballScreens = (() => {
     document.body.appendChild(btn);
   }
 
-  return { announce, watch, open, addFullscreenButton };
+  return { announce, watch, open, onMessage, addFullscreenButton };
 })();

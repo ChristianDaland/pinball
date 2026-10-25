@@ -24,12 +24,25 @@ canvas { display: block; }
   box-shadow: 0 0 20px rgba(233,69,96,0.6); font-weight: bold;
   touch-action: none; user-select: none;
 }
+
+/* Tastaturspill: tastene, plassen i køen eller "spill igjen" – smalt, nede til venstre for poengdisplayet */
+#kb-hint {
+  position: absolute; bottom: 20px; left: 14px; z-index: 20; display: none;
+  max-width: 190px; padding: 8px 14px; border-radius: 14px;
+  background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 14px; line-height: 1.7;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+#kb-hint kbd {
+  display: inline-block; min-width: 1.7em; padding: 0 6px; border-radius: 5px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.4); border-bottom-width: 3px; font: inherit; font-weight: bold;
+}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <button id="sound-btn">🔊 Klikk for lyd</button>
 <button id="launch-btn">🚀 Hold<br>og slipp</button>
+<div id="kb-hint"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/engine/sound.js"></script>
@@ -104,8 +117,9 @@ socket.on('state', (data) => {
     if (!now && was) playSound('flipperDown');
   }
   state = data;
-  // Storskjermen kan bare skyte ut ballen i fritt spill (når ingen står i kø)
-  launchBtn.style.display = state.ball.ready && !state.currentPlayer ? 'block' : 'none';
+  // Storskjermen kan skyte ut ballen i fritt spill (når ingen står i kø), eller når tastaturspilleren har tur
+  launchBtn.style.display = state.ball.ready && (!state.currentPlayer || state.currentPlayer === myId) ? 'block' : 'none';
+  updateKbHint();
 });
 
 function drawGame(now) {
@@ -131,12 +145,91 @@ document.addEventListener('keydown', (e) => {
   const key = keyOf(e);
   if (keyMap[key]) socket.emit(keyMap[key], true);
   if (key === ' ' || key === 'Enter') { e.preventDefault(); startPull(); }
+  if (key === 'n' && kbJoin && queuePos() < 0) joinKeyboard(kbJoin.machine, kbJoin.name);
 });
 document.addEventListener('keyup', (e) => {
   const key = keyOf(e);
   if (keyMap[key]) socket.emit(keyMap[key], false);
   if (key === ' ' || key === 'Enter') release();
 });
+
+/* ══════════════════════ SPILL MED TASTATUR ══════════════════════ */
+// Hovedsiden kan gjøre dette vinduet til en spiller: ?spill=<maskin>&navn=<navn> i adressen, eller en
+// beskjed over BroadcastChannel hvis vinduet allerede er åpent. Vinduet stiller seg da i kø med sin
+// egen faste klient-id (som mobilen), og tastaturet styrer når det blir dens tur.
+const KB_ID_KEY = 'pinball-tastatur-id';
+let kbId = null;
+try { kbId = localStorage.getItem(KB_ID_KEY); } catch (e) { /* ingen lagring – ny id ved påmelding */ }
+// Siste påmelding fra dette vinduet { machine, name, at } – huskes i fanen, så omlasting beholder hint og "spill igjen"
+const KB_JOIN_KEY = 'pinball-tastatur-paamelding';
+let kbJoin = null;
+try { kbJoin = JSON.parse(sessionStorage.getItem(KB_JOIN_KEY)); } catch (e) { /* ingen påmelding */ }
+let pendingJoin = false; // påmelding som venter på tilkobling
+let myId = null;         // offentlig id når vinduet er spiller
+
+function makeId() {
+  return Array.from({ length: 24 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
+}
+
+// Ved (gjen)tilkobling: si hvem vi er, så plassen i køen beholdes, og send en ventende påmelding
+socket.on('connect', () => {
+  if (kbId) socket.emit('hello', { clientId: kbId });
+  if (pendingJoin) { pendingJoin = false; socket.emit('join-queue', { machine: kbJoin.machine, name: kbJoin.name }); }
+});
+socket.on('you', (data) => { myId = data.id; });
+
+function joinKeyboard(machine, name) {
+  if (typeof machine !== 'string' || typeof name !== 'string' || !name.trim()) return;
+  if (!kbId) {
+    kbId = makeId();
+    try { localStorage.setItem(KB_ID_KEY, kbId); } catch (e) { /* gjelder bare dette vinduet */ }
+  }
+  kbJoin = { machine, name: name.trim(), at: Date.now() };
+  try { sessionStorage.setItem(KB_JOIN_KEY, JSON.stringify(kbJoin)); } catch (e) { /* huskes ikke */ }
+  PinballSound.init();
+  if (socket.connected) {
+    socket.emit('hello', { clientId: kbId });
+    socket.emit('join-queue', { machine, name: kbJoin.name });
+  } else {
+    pendingJoin = true;
+  }
+  updateKbHint();
+}
+
+// Plassen i køen (0 = spiller nå), eller -1
+const queuePos = () => myId ? state.players.findIndex(p => p.id === myId) : -1;
+
+const kbHint = document.getElementById('kb-hint');
+let lastHint = '';
+function updateKbHint() {
+  let html = '';
+  if (kbJoin) {
+    const pos = queuePos();
+    if (pos === 0) {
+      html = '<kbd>←</kbd> <kbd>Z</kbd> venstre<br><kbd>→</kbd> <kbd>M</kbd> høyre<br><kbd>mellomrom</kbd> skyt';
+    } else if (pos > 0) {
+      html = `⏳ Du er nr. ${pos} i køen – vent på tur`;
+    } else if (Date.now() - kbJoin.at < 2000) {
+      html = 'Melder deg på…';
+    } else {
+      html = '🔁 Trykk <kbd>N</kbd> for å spille igjen';
+    }
+  }
+  if (html === lastHint) return;
+  lastHint = html;
+  kbHint.innerHTML = html;
+  kbHint.style.display = html ? 'block' : 'none';
+}
+
+const params = new URLSearchParams(location.search);
+if (params.has('spill')) {
+  joinKeyboard(params.get('spill'), params.get('navn') || '');
+  // Fjern påmeldingen fra adressen, så en omlasting ikke melder på på nytt
+  params.delete('spill');
+  params.delete('navn');
+  history.replaceState(null, '', location.pathname + (params.toString() ? '?' + params : ''));
+}
+PinballScreens.onMessage('brett', (p) => joinKeyboard(p.spill, p.navn));
 
 PinballRenderer.resize();
 window.addEventListener('resize', () => PinballRenderer.resize());

@@ -104,6 +104,11 @@ h1 {
 .machine h2 { font-size: 1.7em; letter-spacing: 1px; color: var(--accent); margin: 6px 0 4px; }
 .machine .tagline { opacity: 0.8; font-size: 0.95em; min-height: 2.4em; }
 
+.qr, .scan, .kb-btn, .play-btn, .choose-hint { display: none; }
+body.mode-mobil .qr, body.mode-mobil .scan { display: block; }
+body.mode-tastatur .kb-btn { display: inline-block; }
+body:not(.mode-tastatur):not(.mode-mobil) .choose-hint { display: block; }
+
 .qr {
   background: #fff;
   padding: 10px;
@@ -112,8 +117,23 @@ h1 {
 }
 .scan { font-size: 0.9em; opacity: 0.85; }
 
+.kb-btn {
+  margin: 16px 0 6px;
+  padding: 14px 34px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #000;
+  font: inherit;
+  font-weight: bold;
+  font-size: 1.15em;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.kb-btn:hover { filter: brightness(1.1); }
+.choose-hint { margin: 16px 0 6px; opacity: 0.7; font-size: 0.95em; }
+
 .play-btn {
-  display: none;
   margin: 16px 0 6px;
   padding: 14px 34px;
   border-radius: 999px;
@@ -122,6 +142,7 @@ h1 {
   font-weight: bold;
   font-size: 1.15em;
   letter-spacing: 1px;
+  text-decoration: none;
 }
 
 .record {
@@ -149,15 +170,12 @@ h1 {
 
 /* Skjermene: knapper som åpner brettet og poengtavla i egne vinduer (bare på PC) */
 .screens {
-  max-width: 900px;
-  margin: 0 auto 18px;
+  margin-top: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
   gap: 10px;
 }
-.screens-label { color: #aab; font-size: 0.95em; margin-right: 4px; }
 .screens button {
   padding: 10px 18px;
   border-radius: 999px;
@@ -171,17 +189,104 @@ h1 {
 .screens button:hover { background: rgba(255,255,255,0.14); }
 .screens button.is-open { border-color: #4ade80; color: #4ade80; }
 .screens button.primary { background: #ffe66d; color: #000; border-color: #ffe66d; }
-.screens-msg { flex-basis: 100%; text-align: center; color: #ffb3b3; font-size: 0.9em; min-height: 1.2em; }
+.screens-msg { flex-basis: 100%; color: #ffb3b3; font-size: 0.9em; }
+
+/* Valg av styring: tastatur eller mobil */
+.mode-choice {
+  max-width: 900px;
+  margin: 0 auto 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.mode {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 22px;
+  border-radius: 18px;
+  border: 2px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.mode:hover { background: rgba(255,255,255,0.1); }
+.mode.selected { border-color: #ffe66d; background: rgba(255,230,109,0.1); box-shadow: 0 0 24px rgba(255,230,109,0.25); }
+.mode .mode-icon { font-size: 2.6em; line-height: 1; }
+.mode b { display: block; font-size: 1.35em; margin-bottom: 4px; }
+.mode.selected b { color: #ffe66d; }
+.mode .desc { color: #aab; font-size: 0.95em; }
+
+/* Stegene for valgt styring */
+.steps {
+  display: none;
+  max-width: 900px;
+  margin: 0 auto 26px;
+  padding: 20px 24px;
+  border-radius: 18px;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+body.mode-tastatur #steps-tastatur, body.mode-mobil #steps-mobil { display: block; }
+.steps ol { list-style: none; counter-reset: step; display: grid; gap: 16px; }
+.steps li { counter-increment: step; display: flex; gap: 14px; align-items: flex-start; }
+.steps li::before {
+  content: counter(step);
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ffe66d;
+  color: #000;
+  font-weight: bold;
+  display: grid;
+  place-items: center;
+}
+.steps .step-body { flex: 1; padding-top: 4px; line-height: 1.5; }
+.steps .note { color: #aab; }
+.steps input {
+  margin-top: 8px;
+  width: min(100%, 320px);
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 1.05em;
+}
+.steps input:focus { outline: none; border-color: #ffe66d; }
+.step-msg { color: #ffb3b3; font-size: 0.9em; min-height: 1.2em; margin-top: 4px; }
+.keys { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 6px; color: #ccd; }
+kbd {
+  display: inline-block;
+  min-width: 1.8em;
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.35);
+  border-bottom-width: 3px;
+  background: rgba(255,255,255,0.08);
+  font-family: inherit;
+  font-size: 0.9em;
+  font-weight: bold;
+  text-align: center;
+}
+
+footer { text-align: center; margin-top: 26px; }
+footer a { color: #aab; font-size: 0.9em; }
 
 /* Smale vinduer: én kolonne */
 @media (max-width: 760px) {
   body { padding: 18px 14px 30px; }
   .machines { grid-template-columns: 1fr; gap: 20px; }
+  .mode-choice { grid-template-columns: 1fr; }
 }
 
-/* Mobil (berøringsskjerm): trykk på et kort i stedet for å skanne, og ingen skjermknapper */
+/* Mobil (berøringsskjerm): siden er åpnet på en mobil – trykk på et kort for å spille med den */
 @media (pointer: coarse) {
-  .qr, .scan, .screens { display: none; }
+  .mode-choice, .steps, .qr, .scan, .kb-btn, .choose-hint { display: none !important; }
   .play-btn { display: inline-block; }
   .subtitle .big-screen { display: none; }
   .subtitle .small-screen { display: inline; }
@@ -194,19 +299,57 @@ h1 {
 <header>
   <h1>🎰 Pinball 🎰</h1>
   <div class="subtitle">
-    <span class="big-screen">Velg maskin – skann QR-koden for å stille deg i kø</span>
+    <span class="big-screen">Velg hvordan du vil styre – så er du i gang</span>
     <span class="small-screen">Trykk på maskinen du vil spille</span>
   </div>
 </header>
 
-<div class="screens" id="screens">
-  <span class="screens-label">🖥️ Skjermer:</span>
-  <button id="open-brett">🎰 Åpne brettet</button>
-  <button id="open-score">🏆 Åpne poengtavla</button>
-  <button id="open-both" class="primary">Åpne begge</button>
-  <a href="/redigering.html" style="color:#aab;font-size:0.9em;margin-left:6px">✏️ Rediger brett</a>
-  <div class="screens-msg" id="screens-msg"></div>
+<div class="mode-choice">
+  <button class="mode" data-mode="tastatur" aria-pressed="false">
+    <span class="mode-icon">⌨️</span>
+    <span><b>Spill med tastaturet</b><span class="desc">Rett på denne PC-en. Du trenger ingen mobil.</span></span>
+  </button>
+  <button class="mode" data-mode="mobil" aria-pressed="false">
+    <span class="mode-icon">📱</span>
+    <span><b>Styr med mobilen</b><span class="desc">Brettet vises på storskjermen, mobilen er kontrolleren. Krever QR-kode.</span></span>
+  </button>
 </div>
+
+<section class="steps" id="steps-tastatur">
+  <ol>
+    <li><div class="step-body">
+      <b>Skriv navnet ditt</b> <span class="note">– det havner på topplista</span><br>
+      <input id="kb-name" maxlength="20" placeholder="Navnet ditt" autocomplete="nickname">
+      <div class="step-msg" id="kb-msg"></div>
+    </div></li>
+    <li><div class="step-body"><b>Trykk «▶ Spill» på maskinen du vil spille.</b> <span class="note">Brettet åpnes i et eget vindu.</span></div></li>
+    <li><div class="step-body">
+      <b>Styr med tastene</b>
+      <div class="keys">
+        <span><kbd>←</kbd> eller <kbd>Z</kbd> venstre flipper</span>
+        <span><kbd>→</kbd> eller <kbd>M</kbd> høyre flipper</span>
+        <span>Hold <kbd>mellomrom</kbd> og slipp for å skyte ut ballen</span>
+        <span><kbd>N</kbd> spill igjen</span>
+      </div>
+    </div></li>
+  </ol>
+</section>
+
+<section class="steps" id="steps-mobil">
+  <ol>
+    <li><div class="step-body">
+      <b>Åpne brettet på storskjermen.</b> <span class="note">Dra vinduet over til riktig skjerm og trykk «Fullskjerm».</span>
+      <div class="screens" id="screens">
+        <button id="open-brett">🎰 Åpne brettet</button>
+        <button id="open-score">🏆 Åpne poengtavla</button>
+        <button id="open-both" class="primary">Åpne begge</button>
+        <div class="screens-msg" id="screens-msg"></div>
+      </div>
+    </div></li>
+    <li><div class="step-body"><b>Skann QR-koden</b> til maskinen du vil spille, med kameraet på mobilen.</div></li>
+    <li><div class="step-body"><b>Skriv navnet ditt på mobilen og still deg i kø.</b> <span class="note">Når det er din tur, styrer du flipperne og fjæra med mobilen.</span></div></li>
+  </ol>
+</section>
 
 <div class="now-playing" id="now-playing">Kobler til…</div>
 
@@ -216,6 +359,8 @@ h1 {
   <h3>⏳ KØEN</h3>
   <div id="queue"><div class="empty">Ingen i kø</div></div>
 </div>
+
+<footer><a href="/redigering.html">✏️ Rediger brett</a></footer>
 
 <script src="/engine/screens.js"></script>
 <script>
@@ -257,6 +402,48 @@ PinballScreens.watch((open) => {
   if (open.brett && open.score) screensMsg.textContent = '';
 });
 
+/* ── valg av styring: tastatur eller mobil (huskes i nettleseren) ── */
+const MODE_KEY = 'pinball-styring';
+const modeBtns = document.querySelectorAll('.mode');
+function setMode(mode) {
+  document.body.classList.toggle('mode-tastatur', mode === 'tastatur');
+  document.body.classList.toggle('mode-mobil', mode === 'mobil');
+  for (const b of modeBtns) {
+    b.classList.toggle('selected', b.dataset.mode === mode);
+    b.setAttribute('aria-pressed', b.dataset.mode === mode);
+  }
+  try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* huskes ikke – helt greit */ }
+}
+for (const b of modeBtns) {
+  b.addEventListener('click', () => {
+    setMode(b.dataset.mode);
+    if (b.dataset.mode === 'tastatur' && !kbName.value.trim()) kbName.focus();
+  });
+}
+
+/* ── tastaturspill: brettet åpnes i eget vindu og stiller seg i kø med navnet ── */
+const kbName = document.getElementById('kb-name');
+const kbMsg = document.getElementById('kb-msg');
+try { kbName.value = localStorage.getItem('pinball-player') || ''; } catch (e) { /* tomt navn */ }
+kbName.addEventListener('input', () => { kbMsg.textContent = ''; });
+
+function playKeyboard(machineId) {
+  const name = kbName.value.trim();
+  if (!name) {
+    kbMsg.textContent = 'Skriv navnet ditt først.';
+    kbName.focus();
+    kbName.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  try { localStorage.setItem('pinball-player', name); } catch (e) { /* huskes ikke */ }
+  kbMsg.textContent = PinballScreens.open('brett', { spill: machineId, navn: name })
+    ? '' : 'Nettleseren blokkerte vinduet. Tillat sprettoppvinduer for denne siden og prøv igjen.';
+}
+
+let savedMode = null;
+try { savedMode = localStorage.getItem(MODE_KEY); } catch (e) { /* ikke valgt ennå */ }
+if (savedMode === 'tastatur' || savedMode === 'mobil') setMode(savedMode);
+
 let lastQueue = null, lastNow = null;
 
 // Spillernavn kommer fra brukerne og må aldri settes rett inn som HTML
@@ -278,10 +465,9 @@ function renderMachines() {
   const box = document.getElementById('machines');
   box.innerHTML = '';
   for (const m of machines) {
-    const card = document.createElement('a');
+    const card = document.createElement('div');
     card.className = 'machine';
     card.id = 'machine-' + m.id;
-    card.href = controllerUrl(m.id);
     const c = m.colors || {};
     card.style.setProperty('--bg', c.bg || '#1a1a2e');
     card.style.setProperty('--bg2', c.bg2 || '#16213e');
@@ -293,9 +479,12 @@ function renderMachines() {
       <h2>${escapeHtml(m.name)}</h2>
       <div class="tagline">${escapeHtml(m.tagline)}</div>
       <div class="qr"></div>
-      <div class="scan">📱 Skann for å spille</div>
-      <div class="play-btn">▶ SPILL DENNE</div>
+      <div class="scan">📱 Skann med mobilen for å spille</div>
+      <button class="kb-btn">▶ Spill</button>
+      <a class="play-btn" href="${escapeHtml(controllerUrl(m.id))}">▶ SPILL DENNE</a>
+      <div class="choose-hint">Velg tastatur eller mobil øverst</div>
       <div class="record"></div>`;
+    card.querySelector('.kb-btn').addEventListener('click', () => playKeyboard(m.id));
     box.appendChild(card);
     new QRCode(card.querySelector('.qr'), { text: controllerUrl(m.id), width: 150, height: 150 });
   }

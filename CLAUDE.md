@@ -29,8 +29,12 @@ og `/engine/rules.js` som `window.PinballPhysics` og `window.PinballRules` (pakk
 
 Nettsider (`public/`):
 
-- `index.html`: velg maskin, QR-kode, åpner brett og poengtavle i egne vinduer.
-- `pinball.html`: storskjermen. Sender `table-screen` og får `state` 60 ganger i sekundet.
+- `index.html`: velg styring (tastatur eller mobil, huskes i `localStorage`), maskinkort, QR-koder
+  (bare ved mobil) og knapper som åpner brett og poengtavle i egne vinduer.
+- `pinball.html`: storskjermen. Sender `table-screen` og får `state` 60 ganger i sekundet. Ved
+  tastaturspill blir vinduet selv en spiller: hovedsiden sender `?spill=<maskin>&navn=<navn>`
+  (eller en beskjed over BroadcastChannel hvis vinduet er åpent), og vinduet stiller seg i kø med
+  egen klient-id (`pinball-tastatur-id`).
 - `mobile.html`: spillerens kontroller (navn, kø, flippere, fjær).
 - `score.html`: kø, poeng og topplister.
 - `redigering.html`: brettredigering, egne maskiner, «Prøv brettet» (lokal fysikk) og
